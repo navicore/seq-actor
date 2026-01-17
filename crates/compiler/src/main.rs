@@ -6,7 +6,7 @@
 //!   seqact check <file.act>        Type check without compiling
 //!   seqact emit-ir <file.act>      Output LLVM IR
 
-use seq_actor_compiler::{Compiler, CompilerConfig, CompileError};
+use seq_actor_compiler::{CompileError, Compiler, CompilerConfig};
 use std::env;
 use std::path::Path;
 use std::process::{Command, ExitCode};
@@ -139,9 +139,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     match compile_file(input_file, config) {
         Ok(output_path) => {
             // Run the compiled program
-            let status = Command::new(&output_path)
-                .args(program_args)
-                .status();
+            let status = Command::new(&output_path).args(program_args).status();
 
             match status {
                 Ok(s) => {

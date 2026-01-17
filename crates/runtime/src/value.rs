@@ -177,10 +177,10 @@ mod tests {
 
     #[test]
     fn test_float_value() {
-        let v = Value::float(3.14);
+        let v = Value::float(1.5);
         assert_eq!(v.get_tag(), ValueTag::Float);
         let f = v.as_float().unwrap();
-        assert!((f - 3.14).abs() < 0.001);
+        assert!((f - 1.5).abs() < 0.001);
     }
 
     #[test]

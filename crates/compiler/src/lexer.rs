@@ -49,19 +49,19 @@ pub enum TokenKind {
     RestForOne,
 
     // Delimiters
-    Colon,      // :
-    Semicolon,  // ;
-    Comma,      // ,
-    Dot,        // .
-    Pipe,       // |
-    Arrow,      // ->
-    FatArrow,   // =>
-    LParen,     // (
-    RParen,     // )
-    LBrace,     // {
-    RBrace,     // }
-    LBracket,   // [
-    RBracket,   // ]
+    Colon,     // :
+    Semicolon, // ;
+    Comma,     // ,
+    Dot,       // .
+    Pipe,      // |
+    Arrow,     // ->
+    FatArrow,  // =>
+    LParen,    // (
+    RParen,    // )
+    LBrace,    // {
+    RBrace,    // }
+    LBracket,  // [
+    RBracket,  // ]
 
     // Operators
     Plus,       // +
@@ -104,7 +104,6 @@ impl Token {
 
 /// Lexer state
 pub struct Lexer<'a> {
-    source: &'a str,
     chars: Peekable<Chars<'a>>,
     pos: usize,
     line: usize,
@@ -114,7 +113,6 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
-            source,
             chars: source.chars().peekable(),
             pos: 0,
             line: 1,
@@ -182,7 +180,10 @@ impl<'a> Lexer<'a> {
         let start_col = self.column;
 
         let Some(c) = self.advance() else {
-            return Token::new(TokenKind::Eof, self.make_span(start_pos, start_line, start_col));
+            return Token::new(
+                TokenKind::Eof,
+                self.make_span(start_pos, start_line, start_col),
+            );
         };
 
         let kind = match c {
@@ -204,7 +205,7 @@ impl<'a> Lexer<'a> {
             '%' => TokenKind::Percent,
             '_' => {
                 // Could be underscore or start of identifier
-                if self.peek().map_or(true, |c| !c.is_alphanumeric() && c != '_') {
+                if self.peek().is_none_or(|c| !c.is_alphanumeric() && c != '_') {
                     TokenKind::Underscore
                 } else {
                     self.read_ident_from('_')
@@ -236,7 +237,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     TokenKind::BangEq
                 } else {
-                    TokenKind::Error(format!("Unexpected character '!'"))
+                    TokenKind::Error("Unexpected character '!'".to_string())
                 }
             }
             '<' => {
@@ -287,7 +288,9 @@ impl<'a> Lexer<'a> {
                         Some('r') => value.push('\r'),
                         Some('\\') => value.push('\\'),
                         Some('"') => value.push('"'),
-                        Some(c) => return TokenKind::Error(format!("Invalid escape sequence \\{}", c)),
+                        Some(c) => {
+                            return TokenKind::Error(format!("Invalid escape sequence \\{}", c))
+                        }
                         None => return TokenKind::Error("Unterminated string".to_string()),
                     }
                 }
@@ -313,7 +316,7 @@ impl<'a> Lexer<'a> {
                 // Look ahead to distinguish 1.0 from 1.method()
                 let mut lookahead = self.chars.clone();
                 lookahead.next(); // skip the '.'
-                if lookahead.peek().map_or(false, |c| c.is_ascii_digit()) {
+                if lookahead.peek().is_some_and(|c| c.is_ascii_digit()) {
                     is_float = true;
                     num_str.push(c);
                     self.advance();
@@ -384,7 +387,7 @@ impl<'a> Lexer<'a> {
             "rest_for_one" => TokenKind::RestForOne,
             _ => {
                 // Capitalize idents are type names
-                if ident.chars().next().map_or(false, |c| c.is_uppercase()) {
+                if ident.chars().next().is_some_and(|c| c.is_uppercase()) {
                     TokenKind::TypeIdent(ident)
                 } else {
                     TokenKind::Ident(ident)
@@ -425,10 +428,10 @@ mod tests {
     #[test]
     fn test_numbers() {
         assert_eq!(
-            lex("42 3.14 1_000"),
+            lex("42 1.5 1_000"),
             vec![
                 TokenKind::Int(42),
-                TokenKind::Float(3.14),
+                TokenKind::Float(1.5),
                 TokenKind::Int(1000),
                 TokenKind::Eof,
             ]

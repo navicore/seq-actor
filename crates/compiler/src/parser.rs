@@ -47,9 +47,9 @@ impl Parser {
     }
 
     fn peek(&self) -> &Token {
-        self.tokens.get(self.pos).unwrap_or_else(|| {
-            self.tokens.last().expect("tokens should have at least EOF")
-        })
+        self.tokens
+            .get(self.pos)
+            .unwrap_or_else(|| self.tokens.last().expect("tokens should have at least EOF"))
     }
 
     fn peek_kind(&self) -> &TokenKind {
@@ -57,9 +57,9 @@ impl Parser {
     }
 
     fn peek_ahead(&self, n: usize) -> &Token {
-        self.tokens.get(self.pos + n).unwrap_or_else(|| {
-            self.tokens.last().expect("tokens should have at least EOF")
-        })
+        self.tokens
+            .get(self.pos + n)
+            .unwrap_or_else(|| self.tokens.last().expect("tokens should have at least EOF"))
     }
 
     fn advance(&mut self) -> &Token {
@@ -239,7 +239,9 @@ impl Parser {
         // Check for unit type ()
         if self.match_token(&TokenKind::LParen) {
             if self.match_token(&TokenKind::RParen) {
-                return Ok(TypeExpr::Unit { span: start_span.merge(self.tokens[self.pos - 1].span) });
+                return Ok(TypeExpr::Unit {
+                    span: start_span.merge(self.tokens[self.pos - 1].span),
+                });
             }
 
             // Tuple or grouped type
@@ -429,7 +431,10 @@ impl Parser {
             }
             TokenKind::Ident(name) => {
                 self.advance();
-                Ok(Pattern::Var { name, span: start_span })
+                Ok(Pattern::Var {
+                    name,
+                    span: start_span,
+                })
             }
             TokenKind::TypeIdent(name) => {
                 self.advance();
@@ -805,7 +810,10 @@ impl Parser {
                         span: start_span.merge(self.tokens[self.pos - 1].span),
                     });
                 }
-                Ok(Expr::Var { name, span: start_span })
+                Ok(Expr::Var {
+                    name,
+                    span: start_span,
+                })
             }
             TokenKind::TypeIdent(name) => {
                 self.advance();
@@ -1217,14 +1225,12 @@ mod tests {
         "#;
         let program = parse(source).unwrap();
         match &program.items[0] {
-            Item::FuncDef(f) => {
-                match &f.clauses[0].body {
-                    Expr::Let { pattern, .. } => {
-                        assert!(matches!(pattern, Pattern::Var { name, .. } if name == "y"));
-                    }
-                    _ => panic!("Expected let expression"),
+            Item::FuncDef(f) => match &f.clauses[0].body {
+                Expr::Let { pattern, .. } => {
+                    assert!(matches!(pattern, Pattern::Var { name, .. } if name == "y"));
                 }
-            }
+                _ => panic!("Expected let expression"),
+            },
             _ => panic!("Expected function definition"),
         }
     }
@@ -1246,15 +1252,13 @@ mod tests {
         let source = ": mk_pair (x, y) -> {pair, x, y} ;";
         let program = parse(source).unwrap();
         match &program.items[0] {
-            Item::FuncDef(f) => {
-                match &f.clauses[0].body {
-                    Expr::Tagged { tag, elements, .. } => {
-                        assert_eq!(tag, "pair");
-                        assert_eq!(elements.len(), 2);
-                    }
-                    _ => panic!("Expected tagged expression"),
+            Item::FuncDef(f) => match &f.clauses[0].body {
+                Expr::Tagged { tag, elements, .. } => {
+                    assert_eq!(tag, "pair");
+                    assert_eq!(elements.len(), 2);
                 }
-            }
+                _ => panic!("Expected tagged expression"),
+            },
             _ => panic!("Expected function definition"),
         }
     }
@@ -1264,15 +1268,13 @@ mod tests {
         let source = ": mk_list () -> [1, 2, 3] ;";
         let program = parse(source).unwrap();
         match &program.items[0] {
-            Item::FuncDef(f) => {
-                match &f.clauses[0].body {
-                    Expr::List { elements, tail, .. } => {
-                        assert_eq!(elements.len(), 3);
-                        assert!(tail.is_none());
-                    }
-                    _ => panic!("Expected list expression"),
+            Item::FuncDef(f) => match &f.clauses[0].body {
+                Expr::List { elements, tail, .. } => {
+                    assert_eq!(elements.len(), 3);
+                    assert!(tail.is_none());
                 }
-            }
+                _ => panic!("Expected list expression"),
+            },
             _ => panic!("Expected function definition"),
         }
     }
@@ -1282,16 +1284,19 @@ mod tests {
         let source = r#": main () -> io:println("Hello") ;"#;
         let program = parse(source).unwrap();
         match &program.items[0] {
-            Item::FuncDef(f) => {
-                match &f.clauses[0].body {
-                    Expr::ModuleCall { module, func, args, .. } => {
-                        assert_eq!(module, "io");
-                        assert_eq!(func, "println");
-                        assert_eq!(args.len(), 1);
-                    }
-                    _ => panic!("Expected ModuleCall expression, got {:?}", f.clauses[0].body),
+            Item::FuncDef(f) => match &f.clauses[0].body {
+                Expr::ModuleCall {
+                    module, func, args, ..
+                } => {
+                    assert_eq!(module, "io");
+                    assert_eq!(func, "println");
+                    assert_eq!(args.len(), 1);
                 }
-            }
+                _ => panic!(
+                    "Expected ModuleCall expression, got {:?}",
+                    f.clauses[0].body
+                ),
+            },
             _ => panic!("Expected function definition"),
         }
     }
@@ -1307,15 +1312,16 @@ mod tests {
         "#;
         let program = parse(source).unwrap();
         match &program.items[0] {
-            Item::FuncDef(f) => {
-                match &f.clauses[0].body {
-                    Expr::Supervised { strategy, body, .. } => {
-                        assert_eq!(*strategy, SupervisionStrategy::OneForAll);
-                        assert!(!body.is_empty());
-                    }
-                    _ => panic!("Expected Supervised expression, got {:?}", f.clauses[0].body),
+            Item::FuncDef(f) => match &f.clauses[0].body {
+                Expr::Supervised { strategy, body, .. } => {
+                    assert_eq!(*strategy, SupervisionStrategy::OneForAll);
+                    assert!(!body.is_empty());
                 }
-            }
+                _ => panic!(
+                    "Expected Supervised expression, got {:?}",
+                    f.clauses[0].body
+                ),
+            },
             _ => panic!("Expected function definition"),
         }
     }

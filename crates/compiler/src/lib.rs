@@ -19,22 +19,22 @@
 //! ```
 
 pub mod ast;
+pub mod codegen;
 pub mod lexer;
 pub mod parser;
-pub mod types;
 pub mod typechecker;
-pub mod codegen;
+pub mod types;
 
 pub use ast::*;
-pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{parse, Parser, ParseError};
-pub use types::*;
-pub use typechecker::{TypeChecker, TypeError};
 pub use codegen::CodeGen;
+pub use lexer::{Lexer, Token, TokenKind};
+pub use parser::{parse, ParseError, Parser};
+pub use typechecker::{TypeChecker, TypeError};
+pub use types::*;
 
-use thiserror::Error;
 use std::path::Path;
 use std::process::Command;
+use thiserror::Error;
 
 /// Compiler errors
 #[derive(Error, Debug)]
@@ -105,7 +105,9 @@ impl Compiler {
             eprintln!("Type checking...");
         }
         let mut checker = TypeChecker::new();
-        checker.check_program(&program).map_err(CompileError::Type)?;
+        checker
+            .check_program(&program)
+            .map_err(CompileError::Type)?;
 
         // Generate IR
         if self.config.verbose {
@@ -127,12 +129,11 @@ impl Compiler {
             eprintln!("Compiling with clang...");
         }
 
-        let output_path = self.config.output.clone().unwrap_or_else(|| {
-            source_path
-                .with_extension("")
-                .to_string_lossy()
-                .to_string()
-        });
+        let output_path = self
+            .config
+            .output
+            .clone()
+            .unwrap_or_else(|| source_path.with_extension("").to_string_lossy().to_string());
 
         let opt_flag = format!("-O{}", self.config.opt_level.min(3));
 
@@ -141,10 +142,7 @@ impl Compiler {
         let runtime_lib = find_runtime_library();
 
         let mut cmd = Command::new("clang");
-        cmd.arg(&opt_flag)
-            .arg("-o")
-            .arg(&output_path)
-            .arg(&ir_path);
+        cmd.arg(&opt_flag).arg("-o").arg(&output_path).arg(&ir_path);
 
         // Link against the runtime library if found
         if let Some(ref lib_path) = runtime_lib {
@@ -174,7 +172,9 @@ impl Compiler {
     pub fn check(&self, source: &str) -> Result<(), CompileError> {
         let program = parse(source)?;
         let mut checker = TypeChecker::new();
-        checker.check_program(&program).map_err(CompileError::Type)?;
+        checker
+            .check_program(&program)
+            .map_err(CompileError::Type)?;
         Ok(())
     }
 
@@ -187,7 +187,9 @@ impl Compiler {
     pub fn emit_ir(&self, source: &str) -> Result<String, CompileError> {
         let program = parse(source)?;
         let mut checker = TypeChecker::new();
-        checker.check_program(&program).map_err(CompileError::Type)?;
+        checker
+            .check_program(&program)
+            .map_err(CompileError::Type)?;
         let mut codegen = CodeGen::new();
         Ok(codegen.generate(&program))
     }

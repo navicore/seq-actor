@@ -76,7 +76,10 @@ impl Type {
     }
 
     pub fn is_primitive(&self) -> bool {
-        matches!(self, Type::Int | Type::Float | Type::Bool | Type::String | Type::Unit)
+        matches!(
+            self,
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Unit
+        )
     }
 
     /// Check if this type contains the given type variable
@@ -103,12 +106,18 @@ impl Type {
         match self {
             Type::Var(v) if v == var => replacement.clone(),
             Type::Function { params, ret } => Type::Function {
-                params: params.iter().map(|p| p.substitute(var, replacement)).collect(),
+                params: params
+                    .iter()
+                    .map(|p| p.substitute(var, replacement))
+                    .collect(),
                 ret: Box::new(ret.substitute(var, replacement)),
             },
-            Type::Tuple(elems) => {
-                Type::Tuple(elems.iter().map(|e| e.substitute(var, replacement)).collect())
-            }
+            Type::Tuple(elems) => Type::Tuple(
+                elems
+                    .iter()
+                    .map(|e| e.substitute(var, replacement))
+                    .collect(),
+            ),
             Type::List(elem) => Type::List(Box::new(elem.substitute(var, replacement))),
             Type::Map { key, value } => Type::Map {
                 key: Box::new(key.substitute(var, replacement)),
@@ -118,7 +127,10 @@ impl Type {
             Type::Channel(elem) => Type::Channel(Box::new(elem.substitute(var, replacement))),
             Type::Tagged { tag, fields } => Type::Tagged {
                 tag: tag.clone(),
-                fields: fields.iter().map(|f| f.substitute(var, replacement)).collect(),
+                fields: fields
+                    .iter()
+                    .map(|f| f.substitute(var, replacement))
+                    .collect(),
             },
             Type::Adt { name, type_args } => Type::Adt {
                 name: name.clone(),
@@ -268,8 +280,6 @@ pub struct TypeEnv {
     variables: HashMap<String, TypeScheme>,
     /// ADT definitions
     adts: HashMap<String, AdtDef>,
-    /// Type aliases
-    aliases: HashMap<String, Type>,
 }
 
 impl TypeEnv {

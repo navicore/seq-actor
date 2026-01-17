@@ -194,7 +194,10 @@ impl TypeChecker {
             }
             Pattern::Var { name, .. } => {
                 env.insert_var(name.clone(), TypeScheme::monomorphic(expected_type.clone()));
-                bindings.insert(name.clone(), Binding::new(name.clone(), expected_type.clone()));
+                bindings.insert(
+                    name.clone(),
+                    Binding::new(name.clone(), expected_type.clone()),
+                );
             }
             Pattern::Literal { value, span } => {
                 let lit_type = self.literal_type(value);
@@ -231,7 +234,9 @@ impl TypeChecker {
             Pattern::Constructor { name, args, span } => {
                 // Look up constructor in ADT definitions
                 // Collect field types first to avoid borrow conflicts
-                let field_types: Option<Vec<Type>> = self.env.adts()
+                let field_types: Option<Vec<Type>> = self
+                    .env
+                    .adts()
                     .flat_map(|adt| adt.variants.iter())
                     .find(|v| v.name == *name)
                     .map(|v| v.fields.iter().map(|f| f.typ.clone()).collect());
@@ -280,8 +285,8 @@ impl TypeChecker {
                     // Primitives (Int, Float, Bool, String, Unit) are implicitly copyable
                     // Also allow unknown types (type inference will resolve them)
                     let resolved_type = self.apply_substitution(&binding.typ);
-                    let is_copyable = resolved_type.is_primitive()
-                        || matches!(resolved_type, Type::Unknown(_));
+                    let is_copyable =
+                        resolved_type.is_primitive() || matches!(resolved_type, Type::Unknown(_));
 
                     if !is_copyable && binding.usage == Usage::Consumed {
                         self.errors.push(TypeError::AffineViolation {
@@ -321,7 +326,7 @@ impl TypeChecker {
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                         // Numeric operations
-                        if let Err(_) = self.unify(&left_type, &right_type) {
+                        if self.unify(&left_type, &right_type).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: left_type.to_string(),
                                 found: right_type.to_string(),
@@ -336,7 +341,7 @@ impl TypeChecker {
                     }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                         // Comparison operations
-                        if let Err(_) = self.unify(&left_type, &right_type) {
+                        if self.unify(&left_type, &right_type).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: left_type.to_string(),
                                 found: right_type.to_string(),
@@ -347,14 +352,14 @@ impl TypeChecker {
                     }
                     BinOp::And | BinOp::Or => {
                         // Boolean operations
-                        if let Err(_) = self.unify(&left_type, &Type::Bool) {
+                        if self.unify(&left_type, &Type::Bool).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: "Bool".to_string(),
                                 found: left_type.to_string(),
                                 line: span.line,
                             });
                         }
-                        if let Err(_) = self.unify(&right_type, &Type::Bool) {
+                        if self.unify(&right_type, &Type::Bool).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: "Bool".to_string(),
                                 found: right_type.to_string(),
@@ -384,7 +389,7 @@ impl TypeChecker {
                         operand_type
                     }
                     UnaryOp::Not => {
-                        if let Err(_) = self.unify(&operand_type, &Type::Bool) {
+                        if self.unify(&operand_type, &Type::Bool).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: "Bool".to_string(),
                                 found: operand_type.to_string(),
@@ -414,7 +419,7 @@ impl TypeChecker {
                             return Type::Error;
                         }
                         for (param, arg) in params.iter().zip(arg_types.iter()) {
-                            if let Err(_) = self.unify(param, arg) {
+                            if self.unify(param, arg).is_err() {
                                 self.errors.push(TypeError::TypeMismatch {
                                     expected: param.to_string(),
                                     found: arg.to_string(),
@@ -464,7 +469,7 @@ impl TypeChecker {
                 span,
             } => {
                 let cond_type = self.check_expr(cond, env, bindings);
-                if let Err(_) = self.unify(&cond_type, &Type::Bool) {
+                if self.unify(&cond_type, &Type::Bool).is_err() {
                     self.errors.push(TypeError::TypeMismatch {
                         expected: "Bool".to_string(),
                         found: cond_type.to_string(),
@@ -479,7 +484,7 @@ impl TypeChecker {
                 let then_type = self.check_expr(then_branch, env, &mut then_bindings);
                 let else_type = self.check_expr(else_branch, env, &mut else_bindings);
 
-                if let Err(_) = self.unify(&then_type, &else_type) {
+                if self.unify(&then_type, &else_type).is_err() {
                     self.errors.push(TypeError::TypeMismatch {
                         expected: then_type.to_string(),
                         found: else_type.to_string(),
@@ -510,7 +515,7 @@ impl TypeChecker {
                     let arm_type = self.check_expr(&arm.body, &arm_env, &mut arm_bindings);
 
                     if let Some(ref expected) = result_type {
-                        if let Err(_) = self.unify(expected, &arm_type) {
+                        if self.unify(expected, &arm_type).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: expected.to_string(),
                                 found: arm_type.to_string(),
@@ -546,11 +551,16 @@ impl TypeChecker {
 
             Expr::Constructor { name, args, span } => {
                 // Look up constructor - collect info first to avoid borrow conflicts
-                let constructor_info: Option<(String, Vec<Type>)> = self.env.adts()
+                let constructor_info: Option<(String, Vec<Type>)> = self
+                    .env
+                    .adts()
                     .flat_map(|adt| {
                         adt.variants.iter().filter_map(move |v| {
                             if v.name == *name {
-                                Some((adt.name.clone(), v.fields.iter().map(|f| f.typ.clone()).collect()))
+                                Some((
+                                    adt.name.clone(),
+                                    v.fields.iter().map(|f| f.typ.clone()).collect(),
+                                ))
                             } else {
                                 None
                             }
@@ -569,7 +579,7 @@ impl TypeChecker {
                     }
                     for (arg, field_typ) in args.iter().zip(field_types.iter()) {
                         let arg_type = self.check_expr(arg, env, bindings);
-                        if let Err(_) = self.unify(&arg_type, field_typ) {
+                        if self.unify(&arg_type, field_typ).is_err() {
                             self.errors.push(TypeError::TypeMismatch {
                                 expected: field_typ.to_string(),
                                 found: arg_type.to_string(),
@@ -730,7 +740,7 @@ impl TypeChecker {
 
                 // Target must be Actor[M] where M matches message type
                 let expected_actor = Type::Actor(Box::new(message_type));
-                if let Err(_) = self.unify(&target_type, &expected_actor) {
+                if self.unify(&target_type, &expected_actor).is_err() {
                     self.errors.push(TypeError::TypeMismatch {
                         expected: expected_actor.to_string(),
                         found: target_type.to_string(),
@@ -746,7 +756,12 @@ impl TypeChecker {
                 Type::Actor(Box::new(self.fresh_unknown()))
             }
 
-            Expr::ModuleCall { module, func, args, span } => {
+            Expr::ModuleCall {
+                module,
+                func,
+                args,
+                span,
+            } => {
                 // Type check arguments
                 for arg in args {
                     self.check_expr(arg, env, bindings);
@@ -889,36 +904,45 @@ impl TypeChecker {
             subst.insert(var.clone(), Type::Var(self.fresh_type_var(&var.name)));
         }
 
-        self.apply_type_subst(&scheme.typ, &subst)
+        Self::apply_type_subst(&scheme.typ, &subst)
     }
 
-    /// Apply a type variable substitution
-    fn apply_type_subst(&self, typ: &Type, subst: &HashMap<TypeVar, Type>) -> Type {
+    /// Apply a type variable substitution (standalone function, no instance state needed)
+    fn apply_type_subst(typ: &Type, subst: &HashMap<TypeVar, Type>) -> Type {
         match typ {
             Type::Var(v) => subst.get(v).cloned().unwrap_or_else(|| typ.clone()),
             Type::Function { params, ret } => Type::Function {
-                params: params.iter().map(|p| self.apply_type_subst(p, subst)).collect(),
-                ret: Box::new(self.apply_type_subst(ret, subst)),
+                params: params
+                    .iter()
+                    .map(|p| Self::apply_type_subst(p, subst))
+                    .collect(),
+                ret: Box::new(Self::apply_type_subst(ret, subst)),
             },
-            Type::Tuple(elems) => {
-                Type::Tuple(elems.iter().map(|e| self.apply_type_subst(e, subst)).collect())
-            }
-            Type::List(elem) => Type::List(Box::new(self.apply_type_subst(elem, subst))),
+            Type::Tuple(elems) => Type::Tuple(
+                elems
+                    .iter()
+                    .map(|e| Self::apply_type_subst(e, subst))
+                    .collect(),
+            ),
+            Type::List(elem) => Type::List(Box::new(Self::apply_type_subst(elem, subst))),
             Type::Map { key, value } => Type::Map {
-                key: Box::new(self.apply_type_subst(key, subst)),
-                value: Box::new(self.apply_type_subst(value, subst)),
+                key: Box::new(Self::apply_type_subst(key, subst)),
+                value: Box::new(Self::apply_type_subst(value, subst)),
             },
-            Type::Actor(msg) => Type::Actor(Box::new(self.apply_type_subst(msg, subst))),
-            Type::Channel(elem) => Type::Channel(Box::new(self.apply_type_subst(elem, subst))),
+            Type::Actor(msg) => Type::Actor(Box::new(Self::apply_type_subst(msg, subst))),
+            Type::Channel(elem) => Type::Channel(Box::new(Self::apply_type_subst(elem, subst))),
             Type::Tagged { tag, fields } => Type::Tagged {
                 tag: tag.clone(),
-                fields: fields.iter().map(|f| self.apply_type_subst(f, subst)).collect(),
+                fields: fields
+                    .iter()
+                    .map(|f| Self::apply_type_subst(f, subst))
+                    .collect(),
             },
             Type::Adt { name, type_args } => Type::Adt {
                 name: name.clone(),
                 type_args: type_args
                     .iter()
-                    .map(|a| self.apply_type_subst(a, subst))
+                    .map(|a| Self::apply_type_subst(a, subst))
                     .collect(),
             },
             _ => typ.clone(),
@@ -989,7 +1013,16 @@ impl TypeChecker {
 
             (Type::Var(v1), Type::Var(v2)) if v1 == v2 => Ok(()),
 
-            (Type::Function { params: p1, ret: r1 }, Type::Function { params: p2, ret: r2 }) => {
+            (
+                Type::Function {
+                    params: p1,
+                    ret: r1,
+                },
+                Type::Function {
+                    params: p2,
+                    ret: r2,
+                },
+            ) => {
                 if p1.len() != p2.len() {
                     return Err(TypeError::UnificationError {
                         t1: t1.to_string(),
@@ -1027,13 +1060,27 @@ impl TypeChecker {
             (Type::Channel(e1), Type::Channel(e2)) => self.unify(e1, e2),
 
             (
-                Type::Tagged { tag: t1, fields: f1 },
-                Type::Tagged { tag: t2, fields: f2 },
+                Type::Tagged {
+                    tag: t1,
+                    fields: f1,
+                },
+                Type::Tagged {
+                    tag: t2,
+                    fields: f2,
+                },
             ) => {
                 if t1 != t2 || f1.len() != f2.len() {
                     return Err(TypeError::UnificationError {
-                        t1: Type::Tagged { tag: t1.clone(), fields: f1.clone() }.to_string(),
-                        t2: Type::Tagged { tag: t2.clone(), fields: f2.clone() }.to_string(),
+                        t1: Type::Tagged {
+                            tag: t1.clone(),
+                            fields: f1.clone(),
+                        }
+                        .to_string(),
+                        t2: Type::Tagged {
+                            tag: t2.clone(),
+                            fields: f2.clone(),
+                        }
+                        .to_string(),
                     });
                 }
                 for (a, b) in f1.iter().zip(f2.iter()) {
@@ -1043,8 +1090,14 @@ impl TypeChecker {
             }
 
             (
-                Type::Adt { name: n1, type_args: a1 },
-                Type::Adt { name: n2, type_args: a2 },
+                Type::Adt {
+                    name: n1,
+                    type_args: a1,
+                },
+                Type::Adt {
+                    name: n2,
+                    type_args: a2,
+                },
             ) => {
                 if n1 != n2 || a1.len() != a2.len() {
                     return Err(TypeError::UnificationError {

@@ -15,7 +15,12 @@ pub struct Span {
 
 impl Span {
     pub fn new(start: usize, end: usize, line: usize, column: usize) -> Self {
-        Self { start, end, line, column }
+        Self {
+            start,
+            end,
+            line,
+            column,
+        }
     }
 
     pub fn merge(self, other: Span) -> Span {
@@ -23,7 +28,11 @@ impl Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
             line: self.line.min(other.line),
-            column: if self.line <= other.line { self.column } else { other.column },
+            column: if self.line <= other.line {
+                self.column
+            } else {
+                other.column
+            },
         }
     }
 }
@@ -98,10 +107,7 @@ pub enum TypeExpr {
         span: Span,
     },
     /// Tuple type: `(Int, String)`
-    Tuple {
-        elements: Vec<TypeExpr>,
-        span: Span,
-    },
+    Tuple { elements: Vec<TypeExpr>, span: Span },
     /// Function type: `(Int) -> Int`
     Function {
         params: Vec<TypeExpr>,
@@ -166,7 +172,11 @@ pub enum Pattern {
         span: Span,
     },
     /// List pattern: `[h | t]` or `[a, b, c]`
-    List { elements: Vec<Pattern>, tail: Option<Box<Pattern>>, span: Span },
+    List {
+        elements: Vec<Pattern>,
+        tail: Option<Box<Pattern>>,
+        span: Span,
+    },
 }
 
 impl Pattern {
@@ -286,7 +296,11 @@ pub enum Expr {
     },
 
     /// List construction: `[1, 2, 3]` or `[h | t]`
-    List { elements: Vec<Expr>, tail: Option<Box<Expr>>, span: Span },
+    List {
+        elements: Vec<Expr>,
+        tail: Option<Box<Expr>>,
+        span: Span,
+    },
 
     /// Lambda/anonymous function
     Lambda {

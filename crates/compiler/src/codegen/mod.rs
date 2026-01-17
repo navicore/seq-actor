@@ -2,8 +2,6 @@
 //!
 //! Generates LLVM IR text that can be compiled with clang.
 
-mod runtime;
-
 use std::collections::HashMap;
 
 use crate::ast::*;
@@ -176,12 +174,11 @@ impl CodeGen {
         match expr {
             Expr::Literal { value, .. } => self.generate_literal(value),
 
-            Expr::Var { name, .. } => {
-                self.variables
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| format!("@sa_{}", name))
-            }
+            Expr::Var { name, .. } => self
+                .variables
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| format!("@sa_{}", name)),
 
             Expr::BinOp {
                 op, left, right, ..
@@ -230,7 +227,8 @@ impl CodeGen {
                     .iter()
                     .map(|v| {
                         // Infer argument type from value
-                        if v.starts_with('@') || v.starts_with("getelementptr") || v.contains("i8*") {
+                        if v.starts_with('@') || v.starts_with("getelementptr") || v.contains("i8*")
+                        {
                             format!("i8* {}", v)
                         } else {
                             format!("i64 {}", v)
@@ -333,10 +331,7 @@ impl CodeGen {
                         i * 8
                     ));
                     let typed_ptr = self.fresh_local();
-                    self.emit_line(&format!(
-                        "{} = bitcast i8* {} to i64*",
-                        typed_ptr, elem_ptr
-                    ));
+                    self.emit_line(&format!("{} = bitcast i8* {} to i64*", typed_ptr, elem_ptr));
                     self.emit_line(&format!("store i64 {}, i64* {}", val, typed_ptr));
                 }
 
@@ -367,10 +362,7 @@ impl CodeGen {
                         1 + i * 8
                     ));
                     let typed_ptr = self.fresh_local();
-                    self.emit_line(&format!(
-                        "{} = bitcast i8* {} to i64*",
-                        typed_ptr, elem_ptr
-                    ));
+                    self.emit_line(&format!("{} = bitcast i8* {} to i64*", typed_ptr, elem_ptr));
                     self.emit_line(&format!("store i64 {}, i64* {}", val, typed_ptr));
                 }
 
@@ -408,10 +400,7 @@ impl CodeGen {
 
                         // Store value
                         let val_ptr = self.fresh_local();
-                        self.emit_line(&format!(
-                            "{} = bitcast i8* {} to i64*",
-                            val_ptr, cell
-                        ));
+                        self.emit_line(&format!("{} = bitcast i8* {} to i64*", val_ptr, cell));
                         self.emit_line(&format!("store i64 {}, i64* {}", val, val_ptr));
 
                         // Store next pointer
@@ -428,10 +417,7 @@ impl CodeGen {
                         self.emit_line(&format!("store i64 {}, i64* {}", current, typed_next));
 
                         let cell_int = self.fresh_local();
-                        self.emit_line(&format!(
-                            "{} = ptrtoint i8* {} to i64",
-                            cell_int, cell
-                        ));
+                        self.emit_line(&format!("{} = ptrtoint i8* {} to i64", cell_int, cell));
                         current = cell_int;
                     }
 
@@ -521,7 +507,9 @@ impl CodeGen {
                 "0".to_string()
             }
 
-            Expr::ModuleCall { module, func, args, .. } => {
+            Expr::ModuleCall {
+                module, func, args, ..
+            } => {
                 // Generate code for module-qualified calls
                 self.generate_module_call(module, func, args)
             }
@@ -564,9 +552,7 @@ impl CodeGen {
         };
 
         // Generate arguments
-        let arg_values: Vec<String> = args.iter()
-            .map(|arg| self.generate_expr(arg))
-            .collect();
+        let arg_values: Vec<String> = args.iter().map(|arg| self.generate_expr(arg)).collect();
 
         // Determine expected argument types based on function
         let arg_types = match (module, func) {
@@ -579,15 +565,15 @@ impl CodeGen {
         };
 
         // Format arguments with type annotations for LLVM
-        let arg_str: Vec<String> = arg_values.iter().enumerate()
+        let arg_str: Vec<String> = arg_values
+            .iter()
+            .enumerate()
             .map(|(i, v)| {
                 // Use known type if available, otherwise infer
                 let typ = if i < arg_types.len() {
                     arg_types[i]
                 } else if v.starts_with("getelementptr") || v.contains("i8*") {
                     "i8*"
-                } else if v.starts_with('%') {
-                    "i64"
                 } else {
                     "i64"
                 };
@@ -605,12 +591,21 @@ impl CodeGen {
                 self.emit_line(&format!("call void @{}({})", runtime_func, args_formatted));
                 "0".to_string()
             }
-            ("int", "to_string") | ("float", "to_string") | ("str", "concat") | ("io", "read_line") => {
-                self.emit_line(&format!("{} = call i8* @{}({})", result, runtime_func, args_formatted));
+            ("int", "to_string")
+            | ("float", "to_string")
+            | ("str", "concat")
+            | ("io", "read_line") => {
+                self.emit_line(&format!(
+                    "{} = call i8* @{}({})",
+                    result, runtime_func, args_formatted
+                ));
                 result
             }
             ("str", "length") | ("list", "length") => {
-                self.emit_line(&format!("{} = call i64 @{}({})", result, runtime_func, args_formatted));
+                self.emit_line(&format!(
+                    "{} = call i64 @{}({})",
+                    result, runtime_func, args_formatted
+                ));
                 result
             }
             ("actor", "self") => {
@@ -619,7 +614,10 @@ impl CodeGen {
             }
             _ => {
                 // Generic call
-                self.emit_line(&format!("{} = call i64 @{}({})", result, runtime_func, args_formatted));
+                self.emit_line(&format!(
+                    "{} = call i64 @{}({})",
+                    result, runtime_func, args_formatted
+                ));
                 result
             }
         }
@@ -638,8 +636,12 @@ impl CodeGen {
                 // Add to string pool
                 let idx = self.strings.len();
                 self.strings.push(s.clone());
-                format!("getelementptr inbounds ([{} x i8], [{} x i8]* @.str.{}, i64 0, i64 0)",
-                    s.len() + 1, s.len() + 1, idx)
+                format!(
+                    "getelementptr inbounds ([{} x i8], [{} x i8]* @.str.{}, i64 0, i64 0)",
+                    s.len() + 1,
+                    s.len() + 1,
+                    idx
+                )
             }
             Literal::Unit => "0".to_string(),
         }
@@ -674,10 +676,16 @@ impl CodeGen {
                     next_ptr, result
                 ));
                 let typed_next = self.fresh_local();
-                self.emit_line(&format!("{} = bitcast i8* {} to i64*", typed_next, next_ptr));
+                self.emit_line(&format!(
+                    "{} = bitcast i8* {} to i64*",
+                    typed_next, next_ptr
+                ));
                 self.emit_line(&format!("store i64 {}, i64* {}", right, typed_next));
                 let final_result = self.fresh_local();
-                self.emit_line(&format!("{} = ptrtoint i8* {} to i64", final_result, result));
+                self.emit_line(&format!(
+                    "{} = ptrtoint i8* {} to i64",
+                    final_result, result
+                ));
                 return final_result;
             }
         };
@@ -731,7 +739,8 @@ impl CodeGen {
     fn emit_string_constants(&mut self) {
         if !self.strings.is_empty() {
             // Collect formatted strings first to avoid borrow conflicts
-            let string_constants: Vec<String> = self.strings
+            let string_constants: Vec<String> = self
+                .strings
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
@@ -769,12 +778,12 @@ impl CodeGen {
             Type::Bool => "i1".to_string(),
             Type::String => "i8*".to_string(),
             Type::Unit => "void".to_string(),
-            Type::Tuple(_) => "i8*".to_string(),   // Heap allocated
-            Type::List(_) => "i8*".to_string(),    // Heap allocated
-            Type::Actor(_) => "i8*".to_string(),   // Actor handle
+            Type::Tuple(_) => "i8*".to_string(), // Heap allocated
+            Type::List(_) => "i8*".to_string(),  // Heap allocated
+            Type::Actor(_) => "i8*".to_string(), // Actor handle
             Type::Channel(_) => "i8*".to_string(), // Channel handle
             Type::Function { .. } => "i8*".to_string(), // Function pointer
-            _ => "i64".to_string(), // Default
+            _ => "i64".to_string(),              // Default
         }
     }
 

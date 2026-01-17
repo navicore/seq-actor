@@ -7,8 +7,8 @@
 //! - Actor primitives (Phase 2)
 //! - Supervision (Phase 4)
 
-pub mod value;
 pub mod builtins;
+pub mod value;
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::ffi::CStr;
@@ -27,15 +27,16 @@ pub extern "C" fn sa_alloc(size: i64) -> *mut u8 {
 }
 
 /// Free allocated memory
+///
+/// # Safety
+/// Caller must ensure `ptr` was allocated by `sa_alloc` with the same `size`.
 #[no_mangle]
-pub extern "C" fn sa_free(ptr: *mut u8, size: i64) {
+pub unsafe extern "C" fn sa_free(ptr: *mut u8, size: i64) {
     if ptr.is_null() || size <= 0 {
         return;
     }
-    unsafe {
-        let layout = Layout::from_size_align(size as usize, 8).unwrap();
-        dealloc(ptr, layout);
-    }
+    let layout = Layout::from_size_align(size as usize, 8).unwrap();
+    dealloc(ptr, layout);
 }
 
 // Integer operations
@@ -134,30 +135,34 @@ pub extern "C" fn sa_neg_float(a: f64) -> f64 {
 
 // String operations
 
+/// Print a string without newline
+///
+/// # Safety
+/// Caller must ensure `s` is a valid null-terminated C string.
 #[no_mangle]
-pub extern "C" fn sa_print(s: *const c_char) {
+pub unsafe extern "C" fn sa_print(s: *const c_char) {
     if s.is_null() {
         return;
     }
-    unsafe {
-        let cstr = CStr::from_ptr(s);
-        if let Ok(str) = cstr.to_str() {
-            print!("{}", str);
-        }
+    let cstr = CStr::from_ptr(s);
+    if let Ok(str) = cstr.to_str() {
+        print!("{}", str);
     }
 }
 
+/// Print a string with newline
+///
+/// # Safety
+/// Caller must ensure `s` is a valid null-terminated C string.
 #[no_mangle]
-pub extern "C" fn sa_println(s: *const c_char) {
+pub unsafe extern "C" fn sa_println(s: *const c_char) {
     if s.is_null() {
         println!();
         return;
     }
-    unsafe {
-        let cstr = CStr::from_ptr(s);
-        if let Ok(str) = cstr.to_str() {
-            println!("{}", str);
-        }
+    let cstr = CStr::from_ptr(s);
+    if let Ok(str) = cstr.to_str() {
+        println!("{}", str);
     }
 }
 
@@ -197,8 +202,12 @@ pub extern "C" fn sa_bool_to_string(b: bool) -> *mut c_char {
     ptr as *mut c_char
 }
 
+/// Concatenate two strings
+///
+/// # Safety
+/// Caller must ensure `a` and `b` are valid null-terminated C strings (or null).
 #[no_mangle]
-pub extern "C" fn sa_concat(a: *const c_char, b: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn sa_concat(a: *const c_char, b: *const c_char) -> *mut c_char {
     if a.is_null() && b.is_null() {
         return std::ptr::null_mut();
     }
@@ -206,54 +215,60 @@ pub extern "C" fn sa_concat(a: *const c_char, b: *const c_char) -> *mut c_char {
     let s1 = if a.is_null() {
         String::new()
     } else {
-        unsafe { CStr::from_ptr(a).to_string_lossy().into_owned() }
+        CStr::from_ptr(a).to_string_lossy().into_owned()
     };
 
     let s2 = if b.is_null() {
         String::new()
     } else {
-        unsafe { CStr::from_ptr(b).to_string_lossy().into_owned() }
+        CStr::from_ptr(b).to_string_lossy().into_owned()
     };
 
     let result = format!("{}{}\0", s1, s2);
     let ptr = sa_alloc(result.len() as i64);
     if !ptr.is_null() {
-        unsafe {
-            std::ptr::copy_nonoverlapping(result.as_ptr(), ptr, result.len());
-        }
+        std::ptr::copy_nonoverlapping(result.as_ptr(), ptr, result.len());
     }
     ptr as *mut c_char
 }
 
+/// Get the length of a string
+///
+/// # Safety
+/// Caller must ensure `s` is a valid null-terminated C string.
 #[no_mangle]
-pub extern "C" fn sa_string_length(s: *const c_char) -> i64 {
+pub unsafe extern "C" fn sa_string_length(s: *const c_char) -> i64 {
     if s.is_null() {
         return 0;
     }
-    unsafe { CStr::from_ptr(s).to_bytes().len() as i64 }
+    CStr::from_ptr(s).to_bytes().len() as i64
 }
 
 // List operations
 
 /// Get the head of a list (first element)
+///
+/// # Safety
+/// Caller must ensure `list` is a valid list cell allocated by `sa_list_cons`.
 #[no_mangle]
-pub extern "C" fn sa_list_head(list: *const u8) -> i64 {
+pub unsafe extern "C" fn sa_list_head(list: *const u8) -> i64 {
     if list.is_null() {
         return 0;
     }
-    unsafe { *(list as *const i64) }
+    *(list as *const i64)
 }
 
 /// Get the tail of a list (rest of the list)
+///
+/// # Safety
+/// Caller must ensure `list` is a valid list cell allocated by `sa_list_cons`.
 #[no_mangle]
-pub extern "C" fn sa_list_tail(list: *const u8) -> *const u8 {
+pub unsafe extern "C" fn sa_list_tail(list: *const u8) -> *const u8 {
     if list.is_null() {
         return std::ptr::null();
     }
-    unsafe {
-        let tail_ptr = list.add(8) as *const *const u8;
-        *tail_ptr
-    }
+    let tail_ptr = list.add(8) as *const *const u8;
+    *tail_ptr
 }
 
 /// Check if a list is empty
@@ -311,7 +326,8 @@ mod tests {
     #[test]
     fn test_string_length() {
         let s = CString::new("hello").unwrap();
-        assert_eq!(sa_string_length(s.as_ptr()), 5);
+        // SAFETY: s is a valid CString we just created
+        assert_eq!(unsafe { sa_string_length(s.as_ptr()) }, 5);
     }
 
     #[test]
@@ -325,15 +341,21 @@ mod tests {
         let list = sa_list_cons(1, list);
 
         assert!(!sa_list_is_empty(list));
-        assert_eq!(sa_list_head(list), 1);
+        // SAFETY: list was just created by sa_list_cons
+        assert_eq!(unsafe { sa_list_head(list) }, 1);
 
-        let tail = sa_list_tail(list);
-        assert_eq!(sa_list_head(tail), 2);
+        // SAFETY: list was just created by sa_list_cons
+        let tail = unsafe { sa_list_tail(list) };
+        // SAFETY: tail is a valid list cell
+        assert_eq!(unsafe { sa_list_head(tail) }, 2);
 
-        let tail2 = sa_list_tail(tail);
-        assert_eq!(sa_list_head(tail2), 3);
+        // SAFETY: tail is a valid list cell
+        let tail2 = unsafe { sa_list_tail(tail) };
+        // SAFETY: tail2 is a valid list cell
+        assert_eq!(unsafe { sa_list_head(tail2) }, 3);
 
-        let tail3 = sa_list_tail(tail2);
+        // SAFETY: tail2 is a valid list cell
+        let tail3 = unsafe { sa_list_tail(tail2) };
         assert!(sa_list_is_empty(tail3));
     }
 }

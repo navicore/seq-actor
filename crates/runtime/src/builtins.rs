@@ -107,9 +107,15 @@ mod tests {
         result
     }
 
-    fn double(x: i64) -> i64 { x * 2 }
-    fn is_even(x: i64) -> bool { x % 2 == 0 }
-    fn sum(acc: i64, x: i64) -> i64 { acc + x }
+    fn double(x: i64) -> i64 {
+        x * 2
+    }
+    fn is_even(x: i64) -> bool {
+        x % 2 == 0
+    }
+    fn sum(acc: i64, x: i64) -> i64 {
+        acc + x
+    }
 
     #[test]
     fn test_map() {
