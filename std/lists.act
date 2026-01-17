@@ -1,0 +1,69 @@
+# seq-actor Standard Library: Lists
+#
+# Operations on linked lists.
+
+# Check if list is empty
+: is_empty
+  | ([]) -> true
+  | (_)  -> false
+;
+
+# Get the head (first element) of a list
+: head
+  | ([h | t]) -> Some(h)
+  | ([])      -> None
+;
+
+# Get the tail (rest) of a list
+: tail
+  | ([h | t]) -> Some(t)
+  | ([])      -> None
+;
+
+# Get the length of a list
+: length
+  | ([]) -> 0
+  | ([h | t]) -> 1 + length(t)
+;
+
+# Append two lists
+: append
+  | ([], ys) -> ys
+  | ([x | xs], ys) -> [x | append(xs, ys)]
+;
+
+# Reverse a list
+: reverse (xs) ->
+  reverse_acc(xs, [])
+;
+
+: reverse_acc
+  | ([], acc) -> acc
+  | ([x | xs], acc) -> reverse_acc(xs, [x | acc])
+;
+
+# Sum a list of integers
+: sum
+  | ([]) -> 0
+  | ([x | xs]) -> x + sum(xs)
+;
+
+# Product of a list of integers
+: product
+  | ([]) -> 1
+  | ([x | xs]) -> x * product(xs)
+;
+
+# Take first n elements
+: take
+  | (0, xs) -> []
+  | (n, []) -> []
+  | (n, [x | xs]) -> [x | take(n - 1, xs)]
+;
+
+# Drop first n elements
+: drop
+  | (0, xs) -> xs
+  | (n, []) -> []
+  | (n, [x | xs]) -> drop(n - 1, xs)
+;

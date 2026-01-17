@@ -1,0 +1,29 @@
+# seq-actor Standard Prelude
+#
+# Common types and functions automatically available.
+
+# Result type for error handling
+type Result[T, E] =
+  | Ok(value: T)
+  | Err(error: E)
+;
+
+# Option type for optional values
+type Option[T] =
+  | None
+  | Some(value: T)
+;
+
+# Boolean operations
+: not (b) ->
+  if b then false else true
+;
+
+# Identity function
+: identity (x) -> x ;
+
+# Constant function - returns first argument, ignoring second
+: const (x, y) -> x ;
+
+# Function composition (f . g) x = f(g(x))
+# Note: Higher-order functions will be fully supported in Phase 3

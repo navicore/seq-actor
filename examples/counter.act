@@ -1,0 +1,41 @@
+# Counter Actor Example
+#
+# Demonstrates a simple stateful actor that responds to messages.
+# This example shows:
+# - Type definitions for messages
+# - Spawning actors
+# - Sending messages
+# - Receive blocks with pattern matching
+# - become for state transitions
+
+type CounterMsg =
+  | Inc(n: Int)
+  | Dec(n: Int)
+  | Get(reply: Actor[Int])
+  | Stop
+;
+
+: counter (state: Int) ->
+  receive
+    | Inc(n) ->
+        become counter(state + n)
+    | Dec(n) ->
+        become counter(state - n)
+    | Get(from) ->
+        let (s1, s2) = copy(state)
+        send(from, s1)
+        become counter(s2)
+    | Stop ->
+        ()
+  end
+;
+
+: main () ->
+  let c = spawn counter(0)
+  send(c, Inc(5))
+  send(c, Inc(3))
+  send(c, Get(self()))
+  receive
+    | n -> println(int_to_string(n))
+  end
+;

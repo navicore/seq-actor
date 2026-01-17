@@ -1,0 +1,9 @@
+# Hello World in seq-actor
+#
+# This is the simplest seq-actor program.
+# Compile: seqact build hello.act
+# Run: seqact run hello.act
+
+: main () ->
+  println("Hello, World!")
+;

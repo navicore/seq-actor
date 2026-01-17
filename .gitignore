@@ -1,0 +1,44 @@
+# Rust
+/target/
+seqenv/
+claude.md
+**/*.rs.bk
+*.pdb
+/*.seq
+output
+# LLVM IR output
+*.ll
+*.bc
+*.o
+shop.db
+shopping-cart
+# Compiled binaries (build to target/ or tmp/ only)
+# Never pollute root directory with test binaries!
+/test_*
+/test-*
+/http_simple
+/skynet
+/fanout
+/pingpong
+!tests/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Runtime artifacts
+libseq_runtime.a
+
+# Temporary test artifacts
+/tmp/
+/*.txt
+
+# But keep integration test expected outputs
+!tests/integration/expected/*.txt

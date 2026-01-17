@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/compiler",
+    "crates/runtime",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Ed Sweeney <ed@onextent.com>"]
+license = "MIT"
+repository = "https://github.com/navicore/seq-actor"
+
+[workspace.dependencies]
+# Runtime dependencies
+may = { version = "0.3", features = ["rand_work_steal"] }

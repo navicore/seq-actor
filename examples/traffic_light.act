@@ -1,0 +1,40 @@
+# Traffic Light State Machine
+#
+# Demonstrates using become for state machine transitions.
+# Each state function handles Timer messages and transitions
+# to the next state.
+
+type TrafficMsg = | Timer ;
+
+: traffic_light () ->
+  become red_state()
+;
+
+: red_state () ->
+  println("RED")
+  receive
+    | Timer -> become green_state()
+  end
+;
+
+: green_state () ->
+  println("GREEN")
+  receive
+    | Timer -> become yellow_state()
+  end
+;
+
+: yellow_state () ->
+  println("YELLOW")
+  receive
+    | Timer -> become red_state()
+  end
+;
+
+: main () ->
+  let light = spawn traffic_light()
+  send(light, Timer)
+  send(light, Timer)
+  send(light, Timer)
+  send(light, Timer)
+;

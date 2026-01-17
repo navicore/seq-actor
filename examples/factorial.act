@@ -1,0 +1,16 @@
+# Factorial Example
+#
+# Classic recursive factorial demonstrating:
+# - Multi-clause function definitions
+# - Pattern matching on values
+# - Recursion
+
+: factorial
+  | (0) -> 1
+  | (n) -> n * factorial(n - 1)
+;
+
+: main () ->
+  let result = factorial(10)
+  println(int_to_string(result))
+;

@@ -1,0 +1,19 @@
+[package]
+name = "seq-actor-compiler"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Compiler for the seq-actor language"
+
+[[bin]]
+name = "seqact"
+path = "src/main.rs"
+
+[lib]
+name = "seq_actor_compiler"
+path = "src/lib.rs"
+
+[dependencies]
+seq-actor-runtime = { path = "../runtime" }
+thiserror = "1.0"

@@ -1,0 +1,24 @@
+# seq-actor Standard Library: I/O
+#
+# Basic input/output operations.
+# Most I/O is provided by runtime builtins.
+
+# Print a boolean value
+: print_bool (b) ->
+  if b then print("true") else print("false")
+;
+
+# Print a boolean value with newline
+: println_bool (b) ->
+  if b then println("true") else println("false")
+;
+
+# Print an integer with newline
+: println_int (n) ->
+  println(int_to_string(n))
+;
+
+# Print a float with newline
+: println_float (f) ->
+  println(float_to_string(f))
+;
