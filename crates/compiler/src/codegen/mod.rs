@@ -102,8 +102,18 @@ impl CodeGen {
         self.emit_line("declare i8* @sa_concat(i8*, i8*)");
         self.emit_line("declare i64 @sa_string_length(i8*)");
         self.emit_line("");
-        self.emit_line("; Value type (tagged union)");
-        self.emit_line("%Value = type { i8, [39 x i8] } ; tag + 39 bytes payload");
+        self.emit_line("; StackValue type (seq-core compatible: 5 x i64 = 40 bytes)");
+        self.emit_line("; slot0 = discriminant, slot1 = primary payload, slot2-4 = type-specific");
+        self.emit_line("%StackValue = type { i64, i64, i64, i64, i64 }");
+        self.emit_line("");
+        self.emit_line("; Actor runtime declarations");
+        self.emit_line("declare i64 @sa_actor_spawn(i8*, i8*, i64)");
+        self.emit_line("declare void @sa_actor_send(i64, i64)");
+        self.emit_line("declare i64 @sa_actor_receive()");
+        self.emit_line("declare void @sa_actor_defer(i64)");
+        self.emit_line("declare i64 @sa_actor_self()");
+        self.emit_line("declare void @sa_actor_init()");
+        self.emit_line("declare void @sa_actor_wait_all()");
         self.emit_line("");
     }
 
@@ -482,29 +492,21 @@ impl CodeGen {
                 "0".to_string()
             }
 
-            Expr::Receive { .. } => {
-                // Actor receive - Phase 2
-                "0".to_string()
-            }
+            Expr::Receive { arms, timeout, .. } => self.generate_receive(arms, timeout),
 
-            Expr::Become { .. } => {
-                // Tail call to actor state - Phase 2
-                "0".to_string()
-            }
+            Expr::Become { func, args, .. } => self.generate_become(func, args),
 
-            Expr::Spawn { .. } => {
-                // Actor spawn - Phase 2
-                "0".to_string()
-            }
+            Expr::Spawn { func, args, .. } => self.generate_spawn(func, args),
 
-            Expr::Send { .. } => {
-                // Message send - Phase 2
-                "0".to_string()
-            }
+            Expr::Send {
+                target, message, ..
+            } => self.generate_send(target, message),
 
             Expr::SelfRef { .. } => {
-                // Self reference - Phase 2
-                "0".to_string()
+                // Get current actor's ID
+                let result = self.fresh_local();
+                self.emit_line(&format!("{} = call i64 @sa_actor_self()", result));
+                result
             }
 
             Expr::ModuleCall {
@@ -768,6 +770,169 @@ impl CodeGen {
                 self.emit_line(&constant);
             }
         }
+    }
+
+    /// Generate code for spawn expression
+    fn generate_spawn(&mut self, func: &str, args: &[Expr]) -> String {
+        // Get function pointer for the actor function
+        let func_ptr = self.fresh_local();
+        self.emit_line(&format!(
+            "{} = bitcast i64 ({})*  @sa_{} to i8*",
+            func_ptr,
+            (0..args.len())
+                .map(|_| "i64")
+                .collect::<Vec<_>>()
+                .join(", "),
+            func
+        ));
+
+        // Allocate array for arguments
+        let args_array = if args.is_empty() {
+            "null".to_string()
+        } else {
+            let array_ptr = self.fresh_local();
+            self.emit_line(&format!(
+                "{} = call i8* @sa_alloc(i64 {})",
+                array_ptr,
+                args.len() * 8
+            ));
+            let typed_array = self.fresh_local();
+            self.emit_line(&format!(
+                "{} = bitcast i8* {} to i64*",
+                typed_array, array_ptr
+            ));
+
+            // Store each argument
+            for (i, arg) in args.iter().enumerate() {
+                let arg_val = self.generate_expr(arg);
+                let elem_ptr = self.fresh_local();
+                self.emit_line(&format!(
+                    "{} = getelementptr i64, i64* {}, i64 {}",
+                    elem_ptr, typed_array, i
+                ));
+                self.emit_line(&format!("store i64 {}, i64* {}", arg_val, elem_ptr));
+            }
+            typed_array
+        };
+
+        // Call spawn
+        let result = self.fresh_local();
+        self.emit_line(&format!(
+            "{} = call i64 @sa_actor_spawn(i8* {}, i64* {}, i64 {})",
+            result,
+            func_ptr,
+            args_array,
+            args.len()
+        ));
+        result
+    }
+
+    /// Generate code for send expression
+    fn generate_send(&mut self, target: &Expr, message: &Expr) -> String {
+        let target_val = self.generate_expr(target);
+        let msg_val = self.generate_expr(message);
+        self.emit_line(&format!(
+            "call void @sa_actor_send(i64 {}, i64 {})",
+            target_val, msg_val
+        ));
+        "0".to_string() // Send returns unit
+    }
+
+    /// Generate code for receive expression
+    fn generate_receive(
+        &mut self,
+        arms: &[crate::ast::ReceiveArm],
+        _timeout: &Option<crate::ast::ReceiveTimeout>,
+    ) -> String {
+        // For now, implement a simple receive that just gets the next message
+        // Full pattern matching would loop and defer non-matching messages
+
+        let receive_start = self.fresh_label("receive_start");
+        let receive_match = self.fresh_label("receive_match");
+        let receive_end = self.fresh_label("receive_end");
+
+        // Result storage
+        let result_ptr = self.fresh_local();
+        self.emit_line(&format!("{} = alloca i64", result_ptr));
+
+        // Start receive loop
+        self.emit_line(&format!("br label %{}", receive_start));
+        self.emit_label(&receive_start);
+
+        // Receive a message
+        let msg = self.fresh_local();
+        self.emit_line(&format!("{} = call i64 @sa_actor_receive()", msg));
+
+        // Try to match arms
+        for (i, arm) in arms.iter().enumerate() {
+            let arm_match = self.fresh_label(&format!("arm_match_{}", i));
+            let arm_next = if i + 1 < arms.len() {
+                self.fresh_label(&format!("arm_next_{}", i))
+            } else {
+                receive_start.clone() // Loop back if no match
+            };
+
+            // Generate pattern match
+            let matches = self.generate_pattern_match(&arm.pattern, &msg);
+            self.emit_line(&format!(
+                "br i1 {}, label %{}, label %{}",
+                matches, arm_match, arm_next
+            ));
+
+            // Pattern matched - execute body
+            self.emit_label(&arm_match);
+            self.bind_pattern_vars(&arm.pattern, &msg);
+            let body_result = self.generate_expr(&arm.body);
+            self.emit_line(&format!("store i64 {}, i64* {}", body_result, result_ptr));
+            self.emit_line(&format!("br label %{}", receive_end));
+
+            if i + 1 < arms.len() {
+                self.emit_label(&arm_next);
+            }
+        }
+
+        // If no arms, defer and loop (shouldn't normally happen)
+        if arms.is_empty() {
+            self.emit_line(&format!("call void @sa_actor_defer(i64 {})", msg));
+            self.emit_line(&format!("br label %{}", receive_start));
+        }
+
+        // Done with pattern matching - defer unmatched message and loop
+        // This label is only reached if no pattern matched (fallthrough from last arm_next)
+        self.emit_line(&format!("call void @sa_actor_defer(i64 {})", msg));
+        self.emit_line(&format!("br label %{}", receive_start));
+
+        // End of receive
+        let _ = receive_match;
+        self.emit_label(&receive_end);
+        let loaded_result = self.fresh_local();
+        self.emit_line(&format!(
+            "{} = load i64, i64* {}",
+            loaded_result, result_ptr
+        ));
+        loaded_result
+    }
+
+    /// Generate code for become expression (tail call to state function)
+    fn generate_become(&mut self, func: &str, args: &[Expr]) -> String {
+        // Generate arguments
+        let arg_vals: Vec<String> = args.iter().map(|a| self.generate_expr(a)).collect();
+        let args_str: Vec<String> = arg_vals.iter().map(|v| format!("i64 {}", v)).collect();
+
+        // Tail call to the state function
+        let result = self.fresh_local();
+        self.emit_line(&format!(
+            "{} = tail call i64 @sa_{}({})",
+            result,
+            func,
+            args_str.join(", ")
+        ));
+
+        // Return the result (become is a tail call)
+        self.emit_line(&format!("ret i64 {}", result));
+
+        // Return unreachable value (code after become is dead)
+        "unreachable".to_string()
     }
 
     /// Get LLVM type for a Type

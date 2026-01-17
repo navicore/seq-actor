@@ -2,7 +2,7 @@
 //!
 //! These are higher-level built-ins that work with Value types.
 
-use crate::value::Value;
+use seq_core::Value;
 
 /// Map a function over a list
 pub fn map(list: *const u8, f: fn(i64) -> i64) -> *mut u8 {
