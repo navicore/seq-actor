@@ -895,6 +895,7 @@ Each actor function compiles to:
 - Clearly distinguishes built-ins from user-defined functions
 - Avoids ad-hoc naming that leads to breaking changes
 - No ambiguity with function definition syntax (`: name`)
+- Aliasing (e.g., `alias say = io:println`) considered but deferred - start simple
 
 **Whitespace Policy**: Never significant
 - Grammar is fully explicit with keywords and delimiters
