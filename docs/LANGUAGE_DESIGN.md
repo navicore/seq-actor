@@ -29,6 +29,32 @@
 
 ## 1. Syntax Design
 
+### 1.0 Whitespace Policy
+
+**Whitespace is never significant.** The grammar is fully explicit with keywords and delimiters.
+
+```
+# All of these are identical to the parser:
+
+receive | Msg -> handle(Msg) end
+
+receive
+  | Msg -> handle(Msg)
+end
+
+receive
+| Msg ->
+handle(Msg)
+    end
+```
+
+**Delimiters:**
+- `;` closes function definitions
+- `end` closes blocks (`receive`, `match`, `supervised`, `select`)
+- Parentheses, brackets for grouping and lists
+
+**Rationale:** Code formatters and linters can enforce style. The parser accepts any valid token sequence. No Python-style indentation errors.
+
 ### 1.1 Function Definitions
 
 ```
@@ -135,7 +161,7 @@ let counter = spawn counter_actor(0) ;
 ```
 # send is non-blocking, consumes the message (affine)
 send(counter, Increment(5))
-send(counter, GetCount(self()))
+send(counter, GetCount(actor:self()))
 ```
 
 ### 2.3 Receive Blocks (Selective)
@@ -253,9 +279,9 @@ let x = compute()
 ### 4.1 Actors
 
 ```
-spawn(actor_fn, initial_state)  # -> Actor[M]
+spawn actor_fn(initial_state)    # -> Actor[M] (keyword, inside supervised block)
 send(actor, message)             # non-blocking, consumes message
-self()                           # -> Actor[M] (current actor's handle)
+actor:self()                     # -> Actor[M] (current actor's handle)
 ```
 
 ### 4.2 CSP Channels (Optional Secondary Model)
@@ -330,47 +356,125 @@ type RestartStrategy =
 
 In Erlang/OTP, supervision is powerful but implemented as a library (OTP behaviours). Developers must understand supervisor specs, child specs, and the gen_server protocol. We want supervision to feel as natural as `spawn` and `send`.
 
-**Type-Level Restart Strategies**:
+**Lesson from Scala/Akka**: Good defaults that are invisible lead to developers who never learn the feature exists. When they finally need custom supervision, they don't know where to start.
 
-Instead of specifying restart behavior in runtime configuration, declare it in the type:
+**Decision: Mandatory `supervised` Blocks**
 
-```
-# Restart strategy is part of the actor type
-type Worker = Actor[WorkerMsg, Permanent] ;
-type Cache = Actor[CacheMsg, Transient] ;
-type OneShot = Actor[TaskMsg, Temporary] ;
-
-# spawn infers supervision behavior from the type
-let w = spawn worker_fn()    # type: Actor[WorkerMsg, Permanent]
-let c = spawn cache_fn()     # type: Actor[CacheMsg, Transient]
-```
-
-The type system ensures:
-- Restart semantics are visible at compile time
-- Actor references carry supervision intent
-- Type errors if you try to treat a Temporary actor as Permanent
-
-**Implicit vs Explicit Supervision**:
+Programs without actors need no supervision syntax. The requirement applies only to `spawn`:
 
 ```
-# Option 1: Explicit supervisor declaration
-supervised {
-  let worker1 = spawn worker()
-  let worker2 = spawn worker()
-} with one_for_one
-
-# Option 2: Implicit from spawn context
+# Valid: no actors, no supervision needed
 : main () ->
-  # Top-level spawns are supervised by runtime root supervisor
-  let w = spawn worker()   # Permanent by default, supervised
+  io:println("Hello, World!")
+;
+
+# Valid: actors require supervised block
+: main () ->
+  supervised
+    let worker = spawn process_data()
+  end
 ;
 ```
 
-**Built-in Supervision Trees**:
+All `spawn` calls must occur inside a `supervised` block:
 
-The runtime maintains a supervision tree automatically. Every actor has a parent supervisor (even if implicit). This enables:
+```
+# All spawns require a supervised block
+: main () ->
+  supervised                       # one_for_one is default, can omit
+    let db = spawn database()
+    let cache = spawn cache(db)
+    server_loop(db, cache)
+  end
+;
+
+# Spawn outside supervised block = compile error
+: bad_example () ->
+  let x = spawn worker()           # ERROR: spawn outside supervised block
+;
+```
+
+**Rationale**: Even when using the default strategy, developers see the `supervised` keyword every time they spawn actors. The concept stays visible. When the day comes that they need `one_for_all`, they already know the syntax - just add one word.
+
+**Explicit Strategies**:
+
+```
+# Default: independent actors, restart individually
+supervised
+  let a = spawn worker()
+  let b = spawn worker()
+end
+
+# one_for_one: same as default, but explicit
+supervised one_for_one
+  let a = spawn worker()
+  let b = spawn worker()
+end
+
+# one_for_all: any failure restarts all
+supervised one_for_all
+  let parser = spawn parser()
+  let transformer = spawn transformer(parser)
+  let writer = spawn writer(transformer)
+end
+
+# rest_for_one: failure restarts actor and all after it
+supervised rest_for_one
+  let leader = spawn leader()
+  let follower1 = spawn follower(leader)
+  let follower2 = spawn follower(leader)
+end
+```
+
+**Nested Supervision Trees**:
+
+```
+: main () ->
+  supervised
+    let logger = spawn logger()
+
+    supervised one_for_all
+      let db = spawn database()
+      let replica = spawn replica(db)
+    end
+
+    supervised
+      let w1 = spawn worker()
+      let w2 = spawn worker()
+    end
+  end
+;
+```
+
+Nesting creates the supervision hierarchy. Inner blocks are supervised by the enclosing context.
+
+**Type-Level Restart Behavior**:
+
+Individual actor restart policy (Permanent/Transient/Temporary) is declared in the type:
+
+```
+type Worker = Actor[WorkerMsg, Permanent] ;    # always restart on failure
+type Cache = Actor[CacheMsg, Transient] ;      # restart only on abnormal exit
+type Task = Actor[TaskMsg, Temporary] ;        # never restart
+
+: main () ->
+  supervised
+    let w = spawn worker()    # inferred Permanent from type
+    let t = spawn task()      # inferred Temporary - won't restart
+  end
+;
+```
+
+Two concepts work together:
+- **Supervision strategy** (one_for_one, etc.): How failures affect *sibling* actors
+- **Restart policy** (Permanent, etc.): Whether *this* actor restarts at all
+
+**Built-in Supervision Tree**:
+
+The runtime maintains the supervision tree automatically:
+- Every actor has a parent supervisor
 - Automatic cleanup on parent termination
-- Built-in restart counting and backoff
+- Built-in restart counting and backoff (runtime-enforced limits)
 - Process registry integration
 
 **Design Considerations for Distribution**:
@@ -382,27 +486,214 @@ While initial implementation is single-node, the supervision design should be di
 
 This is an area requiring careful design before implementation. The goal is that local supervision patterns "just work" when actors move to remote nodes.
 
+### 5.4 Entities and Built-in Journaling
+
+**The Problem**: Stackful actors use ~2KB each. A million actors = 2GB. For use cases like IoT digital twins, we need millions of *logical* actors with only thousands *active*.
+
+**The Solution**: Entities - actors with automatic persistence and resurrection.
+
+**Entity vs Actor:**
+
+| Keyword | Stack | Journaled | Passivates | Survives restart |
+|---------|-------|-----------|------------|------------------|
+| `actor` | Always allocated | No | No | No |
+| `entity` | On-demand | Yes | Yes (when idle) | Yes |
+
+**Entity Syntax:**
+
+```
+# Entity has stable identity and persisted state
+entity User (id: UserId) durable state: UserState ->
+  receive
+    | Deposit(n) ->
+        become User(id) with state: {balance: state.balance + n}
+    | GetBalance(reply) ->
+        send(reply, state.balance)
+        become User(id) with state
+  end
+;
+
+# Regular actor - ephemeral
+: worker (data) ->
+  receive
+    | Process -> do_work(data)
+  end
+;
+```
+
+**Durability Modes** (per-entity-type):
+
+```
+# durable: reply waits for journal commit (safe, higher latency)
+entity Account (id) durable state: AccountState -> ...
+
+# async: journal in background, reply immediate (fast, crash may lose recent state)
+entity SensorTwin (id) async state: SensorState -> ...
+
+# volatile: no journal, passivates to memory only (cache use case)
+entity Cache (id) volatile state: CachedValue -> ...
+```
+
+**How It Works:**
+
+```
+Runtime startup:
+  1. Open/create <program>.journal
+  2. Replay journal to build entity index (id → state)
+  3. All entities start passivated (no stack allocated)
+
+Message arrives for entity:
+  1. Lookup state in index
+  2. Allocate stack, activate entity
+  3. Deliver message
+  4. On state change: append to journal (per durability mode)
+
+Entity idle timeout:
+  1. Passivate: free stack, keep state in index
+  2. Entity still "exists", just sleeping
+
+Process crash/restart:
+  1. Journal replay restores all entity state
+  2. Entities resume where they left off
+```
+
+**Journal Format:**
+
+Simple append-only log, managed by runtime:
+
+```
+# Conceptually (actual format is binary):
+[ts:1234567890] [entity:user:42] {balance: 150, name: "Alice"}
+[ts:1234567891] [entity:user:42] {balance: 200, name: "Alice"}
+[ts:1234567892] [entity:sensor:99] {temp: 72.5, updated: 1234567892}
+```
+
+**Compaction** happens automatically:
+- Snapshot current state of all entities
+- Write fresh journal with snapshots only
+- Delete old journal
+
+**Memory Comparison:**
+
+| Approach | 1M logical actors |
+|----------|-------------------|
+| All active (regular actors) | ~2GB |
+| 10K active + 990K passivated (entities) | ~20MB + journal file |
+
+**What We're NOT Doing:**
+- Event sourcing (too complex as built-in; users can build on top)
+- External databases (journal is a file, no dependencies)
+- Bring-your-own persistence (opinionated > flexible)
+- Distribution (single-node first)
+
+**What We ARE Doing:**
+- Built-in crash recovery for entities
+- Millions of logical entities, thousands active in memory
+- Zero-configuration persistence
+- Transparent resurrection on message arrival
+
+**This is a language-level feature.** No libraries to configure. Entities just survive.
+
 ---
 
 ## 6. Built-in Operations
 
-### 6.1 Arithmetic
-`+`, `-`, `*`, `/`, `%` (type-inferred for Int/Float)
+### 6.1 Namespacing Convention
 
-### 6.2 Comparison
-`==`, `!=`, `<`, `>`, `<=`, `>=`
+Built-in functions use `module:function` syntax, visually distinct and consistent with the language's style:
 
-### 6.3 Boolean
-`and`, `or`, `not`
+```
+io:println("Hello")
+str:concat(a, b)
+list:map(xs, f)
+int:to_string(42)
+```
 
-### 6.4 String
-`concat(s1, s2)`, `length(s)`, `split(s, delim)`
+**Rationale**:
+- Avoids ad-hoc naming that leads to breaking changes
+- Clearly identifies built-ins vs user-defined functions
+- Extensible to user modules in the future
+- No ambiguity with function definitions (`: name` vs `module:name`)
 
-### 6.5 List
-`[h | t]` (cons), `head(l)`, `tail(l)`, `map(l, f)`, `filter(l, f)`, `fold(l, init, f)`
+### 6.2 Operators (Infix)
 
-### 6.6 I/O
-`print(s)`, `println(s)`, `read_line()`
+Arithmetic: `+`, `-`, `*`, `/`, `%` (type-inferred for Int/Float)
+
+Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+Boolean: `and`, `or`, `not`
+
+### 6.3 Standard Modules
+
+**`io:` - Input/Output**
+```
+io:print(s)           # print string, no newline
+io:println(s)         # print string with newline
+io:read_line()        # read line from stdin -> String
+```
+
+**`str:` - String Operations**
+```
+str:concat(s1, s2)    # concatenate strings
+str:length(s)         # string length -> Int
+str:split(s, delim)   # split by delimiter -> List[String]
+str:join(xs, delim)   # join list with delimiter -> String
+str:slice(s, start, end)  # substring
+```
+
+**`int:` - Integer Operations**
+```
+int:to_string(n)      # Int -> String
+int:parse(s)          # String -> Result[Int, ParseError]
+int:abs(n)            # absolute value
+int:min(a, b)         # minimum
+int:max(a, b)         # maximum
+```
+
+**`float:` - Float Operations**
+```
+float:to_string(f)    # Float -> String
+float:parse(s)        # String -> Result[Float, ParseError]
+float:floor(f)        # floor -> Int
+float:ceil(f)         # ceiling -> Int
+float:round(f)        # round -> Int
+```
+
+**`list:` - List Operations**
+```
+list:head(xs)         # first element -> Option[T]
+list:tail(xs)         # rest of list -> Option[List[T]]
+list:length(xs)       # length -> Int
+list:map(xs, f)       # apply f to each element
+list:filter(xs, p)    # keep elements where p is true
+list:fold(xs, init, f)  # reduce list
+list:append(xs, ys)   # concatenate lists
+list:reverse(xs)      # reverse list
+```
+
+**`map:` - Hash Map Operations** (future)
+```
+map:new()             # create empty map
+map:get(m, k)         # get value -> Option[V]
+map:put(m, k, v)      # insert/update -> Map[K,V]
+map:remove(m, k)      # remove key -> Map[K,V]
+map:keys(m)           # all keys -> List[K]
+map:values(m)         # all values -> List[V]
+```
+
+**`actor:` - Actor Operations**
+```
+actor:self()          # current actor's reference -> Actor[M]
+actor:send(a, msg)    # send message (also available as send(a, msg))
+actor:spawn(f)        # spawn actor (usually via spawn keyword)
+```
+
+### 6.4 List Syntax
+
+List construction uses special syntax:
+- `[]` - empty list
+- `[1, 2, 3]` - list literal
+- `[h | t]` - cons (head and tail)
 
 ---
 
@@ -412,7 +703,7 @@ This is an area requiring careful design before implementation. The goal is that
 
 ```
 : main () ->
-  println("Hello, World!")
+  io:println("Hello, World!")
 ;
 ```
 
@@ -439,12 +730,14 @@ type CounterMsg =
 ;
 
 : main () ->
-  let c = spawn counter(0)
-  send(c, Inc(5))
-  send(c, Inc(3))
-  send(c, Get(self()))
-  receive
-    | n -> println(int_to_string(n))  # prints 8
+  supervised
+    let c = spawn counter(0)
+    send(c, Inc(5))
+    send(c, Inc(3))
+    send(c, Get(actor:self()))
+    receive
+      | n -> io:println(int:to_string(n))  # prints 8
+    end
   end
 ;
 ```
@@ -457,9 +750,9 @@ type PongMsg = | Pong(from: Actor[PingMsg]) ;
 
 : pinger (count: Int, ponger: Actor[PingMsg]) ->
   | (0, _) ->
-      println("Pinger done")
+      io:println("Pinger done")
   | (n, p) ->
-      send(p, Ping(self()))
+      send(p, Ping(actor:self()))
       receive
         | Pong(_) -> become pinger(n - 1, p)
       end
@@ -468,15 +761,17 @@ type PongMsg = | Pong(from: Actor[PingMsg]) ;
 : ponger () ->
   receive
     | Ping(from) ->
-        send(from, Pong(self()))
+        send(from, Pong(actor:self()))
         become ponger()
   end
 ;
 
 : main () ->
-  let pong = spawn ponger()
-  let ping = spawn pinger(10, pong)
-  # wait for completion...
+  supervised
+    let pong = spawn ponger()
+    let ping = spawn pinger(10, pong)
+    # wait for completion...
+  end
 ;
 ```
 
@@ -533,29 +828,42 @@ Each actor function compiles to:
 - [x] Static binary output
 
 ### Phase 2: Basic Actors
+- [ ] `supervised ... end` block parsing and semantics
 - [ ] spawn/send/receive primitives
 - [ ] Actor[M] type and first-class actor values
 - [ ] Mailbox implementation (selective receive)
-- [ ] become as tail-call state transition
-- [ ] self() builtin
+- [ ] `become` as tail-call state transition
+- [ ] `actor:self()` builtin
+- [ ] Stackful coroutines (green threads via May)
 
-### Phase 3: Full Concurrency
-- [ ] Timeouts in receive
-- [ ] select over multiple sources
-- [ ] CSP channels as secondary model
-- [ ] Proper scheduler integration
-
-### Phase 4: Supervision
-- [ ] link/monitor/trap_exits
-- [ ] Supervisor pattern library
-- [ ] Built-in restart strategies
+### Phase 3: Supervision
+- [ ] Supervision strategies (one_for_one, one_for_all, rest_for_one)
+- [ ] Type-level restart policies (Permanent, Transient, Temporary)
+- [ ] link/monitor/trap_exits primitives
+- [ ] Built-in restart counting and backoff
 - [ ] Process registry
 
-### Phase 5: Polish
-- [ ] Standard library (lists, maps, strings, I/O)
+### Phase 4: Entities and Journaling
+- [ ] `entity` keyword and syntax
+- [ ] Durability modes (durable, async, volatile)
+- [ ] Journal file format and append
+- [ ] State serialization
+- [ ] Passivation on idle timeout
+- [ ] Resurrection on message arrival
+- [ ] Journal compaction
+
+### Phase 5: Full Concurrency
+- [ ] Timeouts in receive (`after` clause)
+- [ ] `select` over multiple sources
+- [ ] CSP channels as secondary model
+- [ ] Scheduler tuning and preemption
+
+### Phase 6: Polish
+- [ ] Standard library (module:function style)
 - [ ] Error messages and diagnostics
 - [ ] Documentation
 - [ ] Performance optimization
+- [ ] Code formatter / linter
 
 ---
 
@@ -581,6 +889,37 @@ Each actor function compiles to:
 - Reuse Seq's FFI approach for familiarity
 
 **File Extension**: `.act`
+
+**Built-in Namespacing**: `module:function` syntax
+- All built-ins use `io:println`, `str:concat`, `list:map`, etc.
+- Clearly distinguishes built-ins from user-defined functions
+- Avoids ad-hoc naming that leads to breaking changes
+- No ambiguity with function definition syntax (`: name`)
+
+**Whitespace Policy**: Never significant
+- Grammar is fully explicit with keywords and delimiters
+- `end` closes all blocks (`receive`, `match`, `supervised`, `select`)
+- Parser accepts any valid token sequence
+- Formatters/linters enforce style, not the compiler
+
+**Supervision**: First-class, mandatory for actors
+- `supervised ... end` block required for all `spawn` calls
+- Even with default strategy, the keyword is visible
+- Prevents "invisible defaults nobody learns" problem (Scala/Akka lesson)
+- Supervision strategy per-block, restart policy per-actor-type
+
+**Execution Model**: Stackful coroutines
+- Each actor has its own stack (~2KB)
+- `receive` suspends coroutine, returns to scheduler
+- Built-in IO automatically yields
+- Sequential code looks sequential (no async/await coloring)
+
+**Persistence**: Built-in journaling, not library
+- `entity` keyword for actors that survive restart
+- Durability modes declared per-entity-type (durable/async/volatile)
+- Journal file managed by runtime, no external dependencies
+- Opinionated > flexible (no bring-your-own persistence)
+- Enables millions of logical entities with thousands active
 
 ---
 

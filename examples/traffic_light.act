@@ -11,30 +11,32 @@ type TrafficMsg = | Timer ;
 ;
 
 : red_state () ->
-  println("RED")
+  io:println("RED")
   receive
     | Timer -> become green_state()
   end
 ;
 
 : green_state () ->
-  println("GREEN")
+  io:println("GREEN")
   receive
     | Timer -> become yellow_state()
   end
 ;
 
 : yellow_state () ->
-  println("YELLOW")
+  io:println("YELLOW")
   receive
     | Timer -> become red_state()
   end
 ;
 
 : main () ->
-  let light = spawn traffic_light()
-  send(light, Timer)
-  send(light, Timer)
-  send(light, Timer)
-  send(light, Timer)
+  supervised
+    let light = spawn traffic_light()
+    send(light, Timer)
+    send(light, Timer)
+    send(light, Timer)
+    send(light, Timer)
+  end
 ;

@@ -1,6 +1,16 @@
 # seq-actor Standard Library: Lists
 #
 # Operations on linked lists.
+#
+# Core builtins available via list: module:
+#   list:head(xs)         - first element -> Option[T]
+#   list:tail(xs)         - rest of list -> Option[List[T]]
+#   list:length(xs)       - length -> Int
+#   list:map(xs, f)       - apply f to each element
+#   list:filter(xs, p)    - keep elements where p is true
+#   list:fold(xs, init, f) - reduce list
+#
+# This file provides additional list utilities.
 
 # Check if list is empty
 : is_empty

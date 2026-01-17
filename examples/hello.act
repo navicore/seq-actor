@@ -5,5 +5,5 @@
 # Run: seqact run hello.act
 
 : main () ->
-  println("Hello, World!")
+  io:println("Hello, World!")
 ;

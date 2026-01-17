@@ -11,9 +11,9 @@ type PongMsg = | Pong(from: Actor[PingMsg]) ;
 
 : pinger
   | (0, ponger) ->
-      println("Pinger done")
+      io:println("Pinger done")
   | (count, ponger) ->
-      send(ponger, Ping(self()))
+      send(ponger, Ping(actor:self()))
       receive
         | Pong(from) ->
             become pinger(count - 1, ponger)
@@ -23,13 +23,15 @@ type PongMsg = | Pong(from: Actor[PingMsg]) ;
 : ponger () ->
   receive
     | Ping(from) ->
-        send(from, Pong(self()))
+        send(from, Pong(actor:self()))
         become ponger()
   end
 ;
 
 : main () ->
-  let pong = spawn ponger()
-  let ping = spawn pinger(10, pong)
-  ()
+  supervised
+    let pong = spawn ponger()
+    let ping = spawn pinger(10, pong)
+    ()
+  end
 ;

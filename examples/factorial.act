@@ -12,5 +12,5 @@
 
 : main () ->
   let result = factorial(10)
-  println(int_to_string(result))
+  io:println(int:to_string(result))
 ;

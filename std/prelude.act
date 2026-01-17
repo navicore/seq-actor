@@ -1,6 +1,14 @@
 # seq-actor Standard Prelude
 #
 # Common types and functions automatically available.
+#
+# Built-in modules (always available):
+#   io:      - io:println, io:print, io:read_line
+#   str:     - str:concat, str:length, str:split
+#   int:     - int:to_string, int:parse, int:abs
+#   float:   - float:to_string, float:parse
+#   list:    - list:head, list:tail, list:map, list:filter, list:fold
+#   actor:   - actor:self, actor:send, actor:spawn
 
 # Result type for error handling
 type Result[T, E] =

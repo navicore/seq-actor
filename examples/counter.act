@@ -31,11 +31,13 @@ type CounterMsg =
 ;
 
 : main () ->
-  let c = spawn counter(0)
-  send(c, Inc(5))
-  send(c, Inc(3))
-  send(c, Get(self()))
-  receive
-    | n -> println(int_to_string(n))
+  supervised
+    let c = spawn counter(0)
+    send(c, Inc(5))
+    send(c, Inc(3))
+    send(c, Get(actor:self()))
+    receive
+      | n -> io:println(int:to_string(n))
+    end
   end
 ;
