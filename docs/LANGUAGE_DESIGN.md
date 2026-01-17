@@ -324,6 +324,64 @@ type RestartStrategy =
 ;
 ```
 
+### 5.3 Supervision Design Philosophy
+
+**Goal**: Make supervision a first-class language feature, not a library pattern.
+
+In Erlang/OTP, supervision is powerful but implemented as a library (OTP behaviours). Developers must understand supervisor specs, child specs, and the gen_server protocol. We want supervision to feel as natural as `spawn` and `send`.
+
+**Type-Level Restart Strategies**:
+
+Instead of specifying restart behavior in runtime configuration, declare it in the type:
+
+```
+# Restart strategy is part of the actor type
+type Worker = Actor[WorkerMsg, Permanent] ;
+type Cache = Actor[CacheMsg, Transient] ;
+type OneShot = Actor[TaskMsg, Temporary] ;
+
+# spawn infers supervision behavior from the type
+let w = spawn worker_fn()    # type: Actor[WorkerMsg, Permanent]
+let c = spawn cache_fn()     # type: Actor[CacheMsg, Transient]
+```
+
+The type system ensures:
+- Restart semantics are visible at compile time
+- Actor references carry supervision intent
+- Type errors if you try to treat a Temporary actor as Permanent
+
+**Implicit vs Explicit Supervision**:
+
+```
+# Option 1: Explicit supervisor declaration
+supervised {
+  let worker1 = spawn worker()
+  let worker2 = spawn worker()
+} with one_for_one
+
+# Option 2: Implicit from spawn context
+: main () ->
+  # Top-level spawns are supervised by runtime root supervisor
+  let w = spawn worker()   # Permanent by default, supervised
+;
+```
+
+**Built-in Supervision Trees**:
+
+The runtime maintains a supervision tree automatically. Every actor has a parent supervisor (even if implicit). This enables:
+- Automatic cleanup on parent termination
+- Built-in restart counting and backoff
+- Process registry integration
+
+**Design Considerations for Distribution**:
+
+While initial implementation is single-node, the supervision design should be distribution-ready:
+- Actor references must be location-transparent
+- Supervision relationships may span nodes
+- Network partitions need explicit handling strategy
+
+This is an area requiring careful design before implementation. The goal is that local supervision patterns "just work" when actors move to remote nodes.
+
 ---
 
 ## 6. Built-in Operations
