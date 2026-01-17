@@ -788,6 +788,23 @@ impl Parser {
             }
             TokenKind::Ident(name) => {
                 self.advance();
+                // Check for module-qualified call: module:function(args)
+                if self.match_token(&TokenKind::Colon) {
+                    let func = self.parse_ident()?;
+                    self.consume(&TokenKind::LParen, "(")?;
+                    let args = if self.check(&TokenKind::RParen) {
+                        Vec::new()
+                    } else {
+                        self.parse_expr_list()?
+                    };
+                    self.consume(&TokenKind::RParen, ")")?;
+                    return Ok(Expr::ModuleCall {
+                        module: name,
+                        func,
+                        args,
+                        span: start_span.merge(self.tokens[self.pos - 1].span),
+                    });
+                }
                 Ok(Expr::Var { name, span: start_span })
             }
             TokenKind::TypeIdent(name) => {
@@ -980,6 +997,30 @@ impl Parser {
                         span: start_span,
                     }),
                     args: vec![arg],
+                    span: start_span.merge(self.tokens[self.pos - 1].span),
+                })
+            }
+            TokenKind::Supervised => {
+                self.advance();
+                // Check for optional strategy
+                let strategy = if self.match_token(&TokenKind::OneForOne) {
+                    SupervisionStrategy::OneForOne
+                } else if self.match_token(&TokenKind::OneForAll) {
+                    SupervisionStrategy::OneForAll
+                } else if self.match_token(&TokenKind::RestForOne) {
+                    SupervisionStrategy::RestForOne
+                } else {
+                    SupervisionStrategy::OneForOne // default
+                };
+                // Parse body expressions until 'end'
+                let mut body = Vec::new();
+                while !self.check(&TokenKind::End) && !self.is_at_end() {
+                    body.push(self.parse_expr()?);
+                }
+                self.consume(&TokenKind::End, "end")?;
+                Ok(Expr::Supervised {
+                    strategy,
+                    body,
                     span: start_span.merge(self.tokens[self.pos - 1].span),
                 })
             }
@@ -1230,6 +1271,49 @@ mod tests {
                         assert!(tail.is_none());
                     }
                     _ => panic!("Expected list expression"),
+                }
+            }
+            _ => panic!("Expected function definition"),
+        }
+    }
+
+    #[test]
+    fn test_parse_module_call() {
+        let source = r#": main () -> io:println("Hello") ;"#;
+        let program = parse(source).unwrap();
+        match &program.items[0] {
+            Item::FuncDef(f) => {
+                match &f.clauses[0].body {
+                    Expr::ModuleCall { module, func, args, .. } => {
+                        assert_eq!(module, "io");
+                        assert_eq!(func, "println");
+                        assert_eq!(args.len(), 1);
+                    }
+                    _ => panic!("Expected ModuleCall expression, got {:?}", f.clauses[0].body),
+                }
+            }
+            _ => panic!("Expected function definition"),
+        }
+    }
+
+    #[test]
+    fn test_parse_supervised_block() {
+        let source = r#"
+            : main () ->
+                supervised one_for_all
+                    spawn worker()
+                end
+            ;
+        "#;
+        let program = parse(source).unwrap();
+        match &program.items[0] {
+            Item::FuncDef(f) => {
+                match &f.clauses[0].body {
+                    Expr::Supervised { strategy, body, .. } => {
+                        assert_eq!(*strategy, SupervisionStrategy::OneForAll);
+                        assert!(!body.is_empty());
+                    }
+                    _ => panic!("Expected Supervised expression, got {:?}", f.clauses[0].body),
                 }
             }
             _ => panic!("Expected function definition"),

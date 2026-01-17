@@ -23,6 +23,9 @@ pub enum TypeError {
     #[error("Undefined type '{name}' at line {line}")]
     UndefinedType { name: String, line: usize },
 
+    #[error("Unknown function '{name}' at line {line}")]
+    UnknownFunction { name: String, line: usize },
+
     #[error("Variable '{name}' used after being consumed (affine violation) at line {line}")]
     AffineViolation { name: String, line: usize },
 
@@ -741,6 +744,69 @@ impl TypeChecker {
             Expr::SelfRef { .. } => {
                 // self() returns Actor[M] where M is the current actor's message type
                 Type::Actor(Box::new(self.fresh_unknown()))
+            }
+
+            Expr::ModuleCall { module, func, args, span } => {
+                // Type check arguments
+                for arg in args {
+                    self.check_expr(arg, env, bindings);
+                }
+
+                // Return type based on module and function
+                match (module.as_str(), func.as_str()) {
+                    // io: module
+                    ("io", "print") | ("io", "println") => Type::Unit,
+                    ("io", "read_line") => Type::String,
+
+                    // str: module
+                    ("str", "concat") => Type::String,
+                    ("str", "length") => Type::Int,
+                    ("str", "split") => Type::List(Box::new(Type::String)),
+                    ("str", "join") => Type::String,
+                    ("str", "slice") => Type::String,
+
+                    // int: module
+                    ("int", "to_string") => Type::String,
+                    ("int", "parse") => self.fresh_unknown(),
+                    ("int", "abs") | ("int", "min") | ("int", "max") => Type::Int,
+
+                    // float: module
+                    ("float", "to_string") => Type::String,
+                    ("float", "parse") => self.fresh_unknown(),
+                    ("float", "floor") | ("float", "ceil") | ("float", "round") => Type::Int,
+
+                    // list: module
+                    ("list", "head") => self.fresh_unknown(),
+                    ("list", "tail") => self.fresh_unknown(),
+                    ("list", "length") => Type::Int,
+                    ("list", "map") => self.fresh_unknown(),
+                    ("list", "filter") => self.fresh_unknown(),
+                    ("list", "fold") => self.fresh_unknown(),
+                    ("list", "append") => self.fresh_unknown(),
+                    ("list", "reverse") => self.fresh_unknown(),
+
+                    // actor: module
+                    ("actor", "self") => Type::Actor(Box::new(self.fresh_unknown())),
+                    ("actor", "send") => Type::Unit,
+                    ("actor", "spawn") => Type::Actor(Box::new(self.fresh_unknown())),
+
+                    // Unknown module/function
+                    _ => {
+                        self.errors.push(TypeError::UnknownFunction {
+                            name: format!("{}:{}", module, func),
+                            line: span.line,
+                        });
+                        self.fresh_unknown()
+                    }
+                }
+            }
+
+            Expr::Supervised { body, .. } => {
+                // Type check supervised block - returns unit
+                for expr in body {
+                    self.check_expr(expr, env, bindings);
+                }
+                Type::Unit
             }
         }
     }

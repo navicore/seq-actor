@@ -136,11 +136,20 @@ impl Compiler {
 
         let opt_flag = format!("-O{}", self.config.opt_level.min(3));
 
+        // Find the runtime library
+        // Look relative to the compiler executable, or use a known path
+        let runtime_lib = find_runtime_library();
+
         let mut cmd = Command::new("clang");
         cmd.arg(&opt_flag)
             .arg("-o")
             .arg(&output_path)
             .arg(&ir_path);
+
+        // Link against the runtime library if found
+        if let Some(ref lib_path) = runtime_lib {
+            cmd.arg(lib_path);
+        }
 
         if self.config.debug {
             cmd.arg("-g");
@@ -188,6 +197,47 @@ impl Default for Compiler {
     fn default() -> Self {
         Self::new(CompilerConfig::default())
     }
+}
+
+/// Find the runtime library for linking
+fn find_runtime_library() -> Option<String> {
+    // Try several locations in order of preference:
+
+    // 1. Environment variable
+    if let Ok(path) = std::env::var("SEQ_ACTOR_RUNTIME") {
+        if Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. Relative to the compiler executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let lib_path = exe_dir.join("libseq_actor_runtime.a");
+            if lib_path.exists() {
+                return Some(lib_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 3. Current directory's target/release
+    let dev_path = Path::new("target/release/libseq_actor_runtime.a");
+    if dev_path.exists() {
+        return Some(dev_path.to_string_lossy().to_string());
+    }
+
+    // 4. Absolute path for development
+    let abs_dev_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("target/release/libseq_actor_runtime.a"));
+    if let Some(path) = abs_dev_path {
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

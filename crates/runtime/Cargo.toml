@@ -9,6 +9,7 @@ description = "Runtime library for seq-actor compiled programs"
 [lib]
 name = "seq_actor_runtime"
 path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 may.workspace = true

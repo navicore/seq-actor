@@ -41,6 +41,17 @@ impl CodeGen {
     pub fn generate(&mut self, program: &Program) -> String {
         // Module header
         self.emit_line("; seq-actor compiled module");
+        // Use host target triple (clang will figure out the actual target)
+        #[cfg(target_os = "macos")]
+        {
+            #[cfg(target_arch = "aarch64")]
+            self.emit_line("target triple = \"arm64-apple-macosx\"");
+            #[cfg(target_arch = "x86_64")]
+            self.emit_line("target triple = \"x86_64-apple-macosx\"");
+        }
+        #[cfg(target_os = "linux")]
+        self.emit_line("target triple = \"x86_64-unknown-linux-gnu\"");
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         self.emit_line("target triple = \"x86_64-unknown-linux-gnu\"");
         self.emit_line("");
 
@@ -134,6 +145,8 @@ impl CodeGen {
             params.join(", ")
         ));
 
+        // Entry basic block label
+        self.emit_line("entry:");
         self.indent += 1;
 
         // Register parameters in variable map
@@ -506,6 +519,108 @@ impl CodeGen {
             Expr::SelfRef { .. } => {
                 // Self reference - Phase 2
                 "0".to_string()
+            }
+
+            Expr::ModuleCall { module, func, args, .. } => {
+                // Generate code for module-qualified calls
+                self.generate_module_call(module, func, args)
+            }
+
+            Expr::Supervised { body, .. } => {
+                // Generate code for supervised block
+                // For now, just generate the body expressions
+                let mut result = "0".to_string();
+                for expr in body {
+                    result = self.generate_expr(expr);
+                }
+                result
+            }
+        }
+    }
+
+    /// Generate code for a module-qualified call
+    fn generate_module_call(&mut self, module: &str, func: &str, args: &[Expr]) -> String {
+        // Map module:function to runtime functions
+        let runtime_func = match (module, func) {
+            ("io", "print") => "sa_print",
+            ("io", "println") => "sa_println",
+            ("io", "read_line") => "sa_read_line",
+            ("str", "concat") => "sa_concat",
+            ("str", "length") => "sa_string_length",
+            ("str", "split") => "sa_string_split",
+            ("int", "to_string") => "sa_int_to_string",
+            ("float", "to_string") => "sa_float_to_string",
+            ("list", "head") => "sa_list_head",
+            ("list", "tail") => "sa_list_tail",
+            ("list", "is_empty") => "sa_list_is_empty",
+            ("list", "cons") => "sa_list_cons",
+            ("actor", "self") => "sa_actor_self",
+            ("actor", "send") => "sa_actor_send",
+            ("actor", "spawn") => "sa_actor_spawn",
+            _ => {
+                // Unknown function - generate placeholder
+                return "0".to_string();
+            }
+        };
+
+        // Generate arguments
+        let arg_values: Vec<String> = args.iter()
+            .map(|arg| self.generate_expr(arg))
+            .collect();
+
+        // Determine expected argument types based on function
+        let arg_types = match (module, func) {
+            ("io", "print") | ("io", "println") => vec!["i8*"],
+            ("str", "concat") => vec!["i8*", "i8*"],
+            ("str", "length") => vec!["i8*"],
+            ("int", "to_string") => vec!["i64"],
+            ("float", "to_string") => vec!["double"],
+            _ => vec![], // Will use inference
+        };
+
+        // Format arguments with type annotations for LLVM
+        let arg_str: Vec<String> = arg_values.iter().enumerate()
+            .map(|(i, v)| {
+                // Use known type if available, otherwise infer
+                let typ = if i < arg_types.len() {
+                    arg_types[i]
+                } else if v.starts_with("getelementptr") || v.contains("i8*") {
+                    "i8*"
+                } else if v.starts_with('%') {
+                    "i64"
+                } else {
+                    "i64"
+                };
+                format!("{} {}", typ, v)
+            })
+            .collect();
+        let args_formatted = arg_str.join(", ");
+
+        // Generate the call
+        let result = self.fresh_local();
+
+        // Determine return type based on function
+        match (module, func) {
+            ("io", "print") | ("io", "println") => {
+                self.emit_line(&format!("call void @{}({})", runtime_func, args_formatted));
+                "0".to_string()
+            }
+            ("int", "to_string") | ("float", "to_string") | ("str", "concat") | ("io", "read_line") => {
+                self.emit_line(&format!("{} = call i8* @{}({})", result, runtime_func, args_formatted));
+                result
+            }
+            ("str", "length") | ("list", "length") => {
+                self.emit_line(&format!("{} = call i64 @{}({})", result, runtime_func, args_formatted));
+                result
+            }
+            ("actor", "self") => {
+                self.emit_line(&format!("{} = call i8* @{}()", result, runtime_func));
+                result
+            }
+            _ => {
+                // Generic call
+                self.emit_line(&format!("{} = call i64 @{}({})", result, runtime_func, args_formatted));
+                result
             }
         }
     }

@@ -205,6 +205,15 @@ impl fmt::Display for Literal {
     }
 }
 
+/// Supervision strategies
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SupervisionStrategy {
+    #[default]
+    OneForOne,
+    OneForAll,
+    RestForOne,
+}
+
 /// Expressions
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -319,6 +328,21 @@ pub enum Expr {
 
     /// Self reference (current actor)
     SelfRef { span: Span },
+
+    /// Module-qualified call: `io:println("hello")`, `str:concat(a, b)`
+    ModuleCall {
+        module: String,
+        func: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+
+    /// Supervised block: `supervised [strategy] ... end`
+    Supervised {
+        strategy: SupervisionStrategy,
+        body: Vec<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -343,6 +367,8 @@ impl Expr {
             Expr::Spawn { span, .. } => *span,
             Expr::Send { span, .. } => *span,
             Expr::SelfRef { span } => *span,
+            Expr::ModuleCall { span, .. } => *span,
+            Expr::Supervised { span, .. } => *span,
         }
     }
 }

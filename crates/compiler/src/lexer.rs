@@ -43,6 +43,10 @@ pub enum TokenKind {
     Copy,
     Std,
     Ffi,
+    Supervised,
+    OneForOne,
+    OneForAll,
+    RestForOne,
 
     // Delimiters
     Colon,      // :
@@ -374,6 +378,10 @@ impl<'a> Lexer<'a> {
             "copy" => TokenKind::Copy,
             "std" => TokenKind::Std,
             "ffi" => TokenKind::Ffi,
+            "supervised" => TokenKind::Supervised,
+            "one_for_one" => TokenKind::OneForOne,
+            "one_for_all" => TokenKind::OneForAll,
+            "rest_for_one" => TokenKind::RestForOne,
             _ => {
                 // Capitalize idents are type names
                 if ident.chars().next().map_or(false, |c| c.is_uppercase()) {
