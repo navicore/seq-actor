@@ -13,3 +13,4 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 may.workspace = true
+seq-core.workspace = true

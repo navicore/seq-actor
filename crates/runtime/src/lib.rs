@@ -7,8 +7,15 @@
 //! - Actor primitives (Phase 2)
 //! - Supervision (Phase 4)
 
+pub mod actor;
 pub mod builtins;
-pub mod value;
+
+// Re-export seq-core types
+pub use seq_core::{
+    ChannelData, Value, WeaveChannelData, WeaveMessage, DISC_BOOL, DISC_CHANNEL, DISC_CLOSURE,
+    DISC_FLOAT, DISC_INT, DISC_MAP, DISC_QUOTATION, DISC_STRING, DISC_SYMBOL, DISC_VARIANT,
+    DISC_WEAVECTX,
+};
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::ffi::CStr;
