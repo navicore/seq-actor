@@ -167,7 +167,7 @@ pub unsafe extern "C" fn sa_actor_spawn(
                     args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
                 );
             }
-            _ => unreachable!("argc validated before spawn")
+            _ => unreachable!("argc validated before spawn"),
         }
     });
 
