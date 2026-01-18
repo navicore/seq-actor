@@ -90,6 +90,14 @@ pub unsafe extern "C" fn sa_actor_spawn(
     let (sender, receiver) = mpmc::channel::<Value>();
     let mailbox = ChannelData { sender, receiver };
 
+    // Validate argument count before spawning (fail fast, not async)
+    if argc as usize > MAX_ACTOR_ARGS {
+        panic!(
+            "sa_actor_spawn: too many arguments ({}) - maximum is {}",
+            argc, MAX_ACTOR_ARGS
+        );
+    }
+
     // Copy arguments for the new coroutine
     let args: Vec<i64> = if argc > 0 && !args_ptr.is_null() {
         std::slice::from_raw_parts(args_ptr, argc as usize).to_vec()
@@ -159,13 +167,7 @@ pub unsafe extern "C" fn sa_actor_spawn(
                     args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
                 );
             }
-            _ => {
-                panic!(
-                    "sa_actor_spawn: too many arguments ({}) - maximum is {}",
-                    args.len(),
-                    MAX_ACTOR_ARGS
-                );
-            }
+            _ => unreachable!("argc validated before spawn")
         }
     });
 
