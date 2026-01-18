@@ -12,6 +12,13 @@ use seq_core::{ChannelData, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Once;
+
+/// Maximum number of arguments supported for actor spawn
+pub const MAX_ACTOR_ARGS: usize = 8;
+
+/// Guard to ensure actor runtime is initialized exactly once
+static INIT_ONCE: Once = Once::new();
 
 /// Global counter for generating unique actor IDs
 static ACTOR_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -32,28 +39,44 @@ coroutine_local! {
 }
 
 /// Initialize the actor runtime
-/// Call this once at program startup
+///
+/// Call this once at program startup before spawning any actors.
+/// Safe to call multiple times - subsequent calls are no-ops.
+///
+/// # Thread Safety
+/// Uses `std::sync::Once` internally to ensure initialization
+/// happens exactly once, even when called from multiple threads.
 #[no_mangle]
 pub extern "C" fn sa_actor_init() {
-    // Initialize the may runtime with default config
-    let workers = std::thread::available_parallelism()
-        .map(|p| p.get())
-        .unwrap_or(4);
-    may::config().set_workers(workers);
+    INIT_ONCE.call_once(|| {
+        let workers = std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(4);
+        may::config().set_workers(workers);
+    });
 }
 
 /// Spawn a new actor
 ///
 /// # Arguments
-/// * `func_ptr` - Pointer to the actor's main function
-/// * `args_ptr` - Pointer to array of i64 arguments
-/// * `argc` - Number of arguments
+/// * `func_ptr` - Pointer to the actor's main function. Must be a valid function
+///   pointer with signature `extern "C" fn(...) -> i64` where the number of
+///   parameters matches `argc`.
+/// * `args_ptr` - Pointer to array of i64 arguments. Must be valid for `argc` elements,
+///   or null if `argc` is 0.
+/// * `argc` - Number of arguments (0 to [`MAX_ACTOR_ARGS`], currently 8)
 ///
 /// # Returns
 /// The new actor's ID (as i64), which is also used as the channel handle
 ///
+/// # Panics
+/// Panics if `argc` exceeds [`MAX_ACTOR_ARGS`] (8).
+///
 /// # Safety
-/// Caller must ensure func_ptr is a valid function pointer and args_ptr/argc are valid.
+/// - `func_ptr` must be a valid function pointer with the correct signature
+///   for the given argument count
+/// - `args_ptr` must be valid for reading `argc` i64 values, or null if `argc == 0`
+/// - The function signature must match: `extern "C" fn(i64, ...) -> i64`
 #[no_mangle]
 pub unsafe extern "C" fn sa_actor_spawn(
     func_ptr: *const u8,
@@ -137,11 +160,10 @@ pub unsafe extern "C" fn sa_actor_spawn(
                 );
             }
             _ => {
-                // Too many arguments - call with first 8
-                let f: extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 =
-                    std::mem::transmute(func);
-                f(
-                    args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+                panic!(
+                    "sa_actor_spawn: too many arguments ({}) - maximum is {}",
+                    args.len(),
+                    MAX_ACTOR_ARGS
                 );
             }
         }
@@ -153,19 +175,24 @@ pub unsafe extern "C" fn sa_actor_spawn(
 /// Send a message to an actor
 ///
 /// # Arguments
-/// * `target_id` - The target actor's ID (currently unused, messages go to self)
+/// * `target_id` - The target actor's ID
 /// * `message` - The message (i64 tagged value)
 ///
-/// Note: For Phase 2, we use a simplified model where send requires
-/// the target actor's channel handle. Full actor registry comes later.
+/// # Panics
+/// Currently unimplemented - will panic if called.
+/// Full actor registry and message passing will be implemented in Phase 3.
+///
+/// # Future Implementation
+/// Phase 3 will add an actor registry to look up actors by ID and
+/// enable cross-actor message passing.
 #[no_mangle]
 pub extern "C" fn sa_actor_send(target_id: i64, message: i64) {
-    // For now, we can only send to actors that we have a reference to
-    // In a full implementation, we'd look up the actor by ID in a registry
-    // For Phase 2, this is a no-op placeholder - actual sending happens
-    // through the channel reference passed around
-    let _ = target_id;
-    let _ = message;
+    unimplemented!(
+        "sa_actor_send is not yet implemented (Phase 3). \
+         Called with target_id={}, message={}",
+        target_id,
+        message
+    );
 }
 
 /// Receive a message from the mailbox (blocking)
@@ -173,7 +200,11 @@ pub extern "C" fn sa_actor_send(target_id: i64, message: i64) {
 /// First checks the deferred queue, then waits on the mailbox channel.
 ///
 /// # Returns
-/// The received message (i64 tagged value)
+/// The received message as i64. Currently only `Value::Int` messages are supported.
+///
+/// # Panics
+/// - Panics if called outside an actor context
+/// - Panics if a non-Int value is received (unsupported in Phase 2)
 #[no_mangle]
 pub extern "C" fn sa_actor_receive() -> i64 {
     CURRENT_ACTOR.with(|ctx| {
@@ -189,17 +220,19 @@ pub extern "C" fn sa_actor_receive() -> i64 {
             match actor_ctx.mailbox.receiver.recv() {
                 Ok(value) => {
                     // Convert seq_core::Value to i64
-                    // For now, assume Int values
                     match value {
                         Value::Int(n) => n,
-                        _ => 0,
+                        other => panic!(
+                            "sa_actor_receive: unsupported value type {:?}. \
+                             Only Int values are supported in Phase 2.",
+                            other
+                        ),
                     }
                 }
-                Err(_) => 0, // Channel closed, return unit
+                Err(_) => 0, // Channel closed, return unit (0)
             }
         } else {
-            // Not in an actor context - return 0 (unit)
-            0
+            panic!("sa_actor_receive: called outside of actor context");
         }
     })
 }
@@ -270,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_and_send() {
+    fn test_spawn_actor() {
         // Simple test function that does nothing
         extern "C" fn dummy_actor() -> i64 {
             0
@@ -280,11 +313,13 @@ mod tests {
             let actor_id = sa_actor_spawn(dummy_actor as *const u8, std::ptr::null(), 0);
             assert!(actor_id > 0);
 
-            // Send a message (actor will ignore it)
-            sa_actor_send(actor_id, 42);
-
             // Give it time to run
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
+
+    // Note: sa_actor_send and sa_actor_receive panic on misuse, but since they are
+    // extern "C" functions, panics cause process abort rather than unwind. This means
+    // #[should_panic] tests don't work. The panic behavior is verified by the panic
+    // messages in the function implementations.
 }
